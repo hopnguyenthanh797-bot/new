@@ -1,0 +1,5 @@
+telethon
+supabase
+flask
+httpx
+cryptography
