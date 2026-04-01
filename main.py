@@ -288,6 +288,12 @@ async def worker_grab_loop(client, phone):
                                             m_search = re.search(r'là:\s*([A-Z0-9]+)', click_res.message)
                                             if m_search: 
                                                 code_found = m_search.group(1)
+                                        
+                                        # ---> THÊM NÂNG CẤP 1: Xử lý định dạng ảnh (có dấu cách, icon, in hoa/thường)
+                                        if not code_found:
+                                            m_search_new = re.search(r'(?i)là\s*[:\s]+\`?([A-Z0-9]+)\`?', click_res.message)
+                                            if m_search_new:
+                                                code_found = m_search_new.group(1).replace('`', '').strip()
                                     
                                     if not code_found:
                                         await asyncio.sleep(1.0)
@@ -297,6 +303,26 @@ async def worker_grab_loop(client, phone):
                                                 m_match = re.search(r'là:\s*\n?([A-Z0-9]+)', m.message)
                                                 if m_match: 
                                                     code_found = m_match.group(1)
+                                                    
+                                            # ---> THÊM NÂNG CẤP 2: Xử lý các mẫu tin nhắn đập hộp dạng mới trong chat
+                                            if not code_found and m.message:
+                                                m_match_new = re.search(r'(?i)là\s*[:\s]+\`?([A-Z0-9]+)\`?', m.message)
+                                                if m_match_new:
+                                                    code_found = m_match_new.group(1).replace('`', '').strip()
+
+                                        # ---> THÊM NÂNG CẤP 3: Trường hợp đập hộp ở nhóm nhưng bot trả code về tin nhắn riêng (DM)
+                                        if not code_found and ev.sender_id:
+                                            try:
+                                                await asyncio.sleep(1.5) # Đợi bot gửi DM
+                                                dm_msgs = await client.get_messages(ev.sender_id, limit=2)
+                                                for dm in dm_msgs:
+                                                    if dm.message:
+                                                        m_match_dm = re.search(r'(?i)là\s*[:\s]+\`?([A-Z0-9]+)\`?', dm.message)
+                                                        if m_match_dm:
+                                                            code_found = m_match_dm.group(1).replace('`', '').strip()
+                                                            break
+                                            except Exception as e_dm:
+                                                logging.error(f"Lỗi check nhận code từ DM bot: {e_dm}")
 
                                     if code_found:
                                         # ---> FIX: KIỂM TRA CHỐNG LƯU CODE CŨ NẾU KHÔNG ĐẬP ĐƯỢC
