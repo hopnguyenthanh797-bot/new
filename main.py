@@ -404,7 +404,7 @@ async def cb_handler(e):
             for i, (user_id, total_amt) in enumerate(sorted_top):
                 txt += f"{medals[i]} ID: `{user_id}` - Tổng nạp: **{total_amt:,}đ**\n"
             txt += "━━━━━━━━━━━━━━━━━━\n🕒 Cập nhật lúc: " + datetime.now(VN_TZ).strftime('%H:%M %d/%m/%Y')
-            txt += "\n🎁 *Top 3 sẽ được hệ thống cộng thưởng tự động vào cuối ngày!*"
+            txt += "\n🎁 3 Top đầu sẽ được hệ thống cộng thưởng tự động vào cuối ngày!*"
             
             await e.edit(txt, buttons=[[TButton.inline("🔙 QUAY LẠI TRANG CHỦ", b"back")]])
         except Exception as ex:
