@@ -130,6 +130,17 @@ async def db_set_setting(key, value):
     except Exception as e:
         logging.error(f"Lỗi db_set_setting: {e}")
 
+# ---> THÊM MỚI: HÀM SYNC SETTING CHO THỐNG KÊ (DÙNG TRONG WEBHOOK)
+def sync_db_set_setting(key, value):
+    try:
+        res = supabase.table("settings").select("value").eq("key", key).execute()
+        if not res.data:
+            supabase.table("settings").insert({"key": key, "value": str(value)}).execute()
+        else:
+            supabase.table("settings").update({"value": str(value)}).eq("key", key).execute()
+    except Exception as e:
+        logging.error(f"Lỗi sync_db_set_setting: {e}")
+
 # ==================== LOGIC THÔNG BÁO KÊNH & LỊCH SỬ ====================
 async def send_channel_notify(text):
     channel_id_str = await db_get_setting("NOTIFY_CHANNEL_ID", "Chưa cài đặt")
@@ -349,17 +360,37 @@ async def get_main_btns(uid):
         [TButton.inline("🛒 DANH MỤC GAME", b"list_categories")],
         [TButton.inline("🏦 NẠP TIỀN", b"dep_menu"), TButton.inline("🕒 LỊCH SỬ GIAO DỊCH", b"history")],
         [TButton.inline("🏆 TOP NẠP TRONG NGÀY", b"top_users")], 
+        # ---> THÊM MỚI: NÚT THỐNG KÊ & GIỚI THIỆU
+        [TButton.inline("📊 THỐNG KÊ HỆ THỐNG", b"global_stats")],
+        [TButton.inline("🤝 GIỚI THIỆU (HOA HỒNG 10%)", b"referral_menu")],
         [TButton.url("💬 LIÊN HỆ HỖ TRỢ", support_link)], 
     ]
     if uid == ADMIN_ID:
         btns.append([TButton.inline("👑 QUẢN TRỊ ADMIN", b"admin_menu")])
     return btns
 
-@bot.on(events.NewMessage(pattern="/start"))
+# ---> CẬP NHẬT: XỬ LÝ LƯU NGƯỜI GIỚI THIỆU TỪ LINK START
+@bot.on(events.NewMessage(pattern=r"^/start(?: (.*))?$"))
 async def start(e):
-    user = await db_get_user(e.sender_id)
+    uid = e.sender_id
+    payload = e.pattern_match.group(1)
+    
+    user = await db_get_user(uid)
+    
+    # Xử lý lưu referrer_id nếu có người giới thiệu và user chưa từng có ref
+    if payload and payload.isdigit() and int(payload) != uid:
+        referrer_id = int(payload)
+        if user.get('referrer_id') is None:
+            try:
+                await asyncio.to_thread(lambda: supabase.table("users").update({"referrer_id": referrer_id}).eq("user_id", uid).execute())
+                user['referrer_id'] = referrer_id
+                # Gửi thông báo cho người giới thiệu
+                await bot.send_message(referrer_id, f"🎉 **CÓ NGƯỜI MỚI THAM GIA!**\nThành viên ID `{uid}` vừa đăng ký qua link giới thiệu của bạn. Bạn sẽ nhận **10% hoa hồng** mỗi khi họ nạp tiền!")
+            except Exception as ex:
+                logging.error(f"Lỗi lưu referrer_id: {ex}")
+
     text = await main_menu_text(user)
-    btns = await get_main_btns(e.sender_id)
+    btns = await get_main_btns(uid)
     await e.respond(text, buttons=btns)
 
 @bot.on(events.CallbackQuery)
@@ -373,6 +404,42 @@ async def cb_handler(e):
         text = await main_menu_text(user)
         btns = await get_main_btns(uid)
         await e.edit(text, buttons=btns)
+
+    # ---> THÊM MỚI: XỬ LÝ NÚT GIỚI THIỆU
+    elif data == "referral_menu":
+        await e.answer()
+        bot_info = await bot.get_me()
+        ref_link = f"https://t.me/{bot_info.username}?start={uid}"
+        txt = (f"🤝 **CHƯƠNG TRÌNH HOA HỒNG GIỚI THIỆU** 🤝\n"
+               f"━━━━━━━━━━━━━━━━━━\n"
+               f"🎁 **Nhận ngay 10%** giá trị mỗi lần nạp của người mà bạn giới thiệu (Không giới hạn số lần nạp).\n\n"
+               f"🔗 **Link giới thiệu của bạn:**\n`{ref_link}`\n\n"
+               f"*(Hãy copy link trên và gửi cho bạn bè để bắt đầu kiếm tiền thụ động nhé!)*")
+        await e.edit(txt, buttons=[[TButton.inline("🔙 QUAY LẠI TRANG CHỦ", b"back")]])
+
+    # ---> THÊM MỚI: XỬ LÝ NÚT THỐNG KÊ HỆ THỐNG
+    elif data == "global_stats":
+        await e.answer()
+        try:
+            # Đếm tổng thành viên
+            u_res = await asyncio.to_thread(lambda: supabase.table("users").select("user_id", count='exact').limit(1).execute())
+            total_users = u_res.count if u_res.count else 0
+            
+            # Lấy thống kê nạp và mua từ Settings (giúp chống rate limit DB)
+            total_dep = int(await db_get_setting("TOTAL_DEPOSIT", "0"))
+            total_sold = int(await db_get_setting("TOTAL_CODES_SOLD", "0"))
+            
+            txt = (f"📊 **BẢNG THỐNG KÊ HỆ THỐNG** 📊\n"
+                   f"━━━━━━━━━━━━━━━━━━\n"
+                   f"👥 **Tổng số thành viên:** `{total_users:,}` người\n"
+                   f"💵 **Tổng tiền đã nạp:** `{total_dep:,} VNĐ`\n"
+                   f"📦 **Tổng lượt mua code:** `{total_sold:,}` mã\n"
+                   f"━━━━━━━━━━━━━━━━━━\n"
+                   f"✅ *Hệ thống uy tín, tự động và minh bạch 24/7!*")
+            await e.edit(txt, buttons=[[TButton.inline("🔙 QUAY LẠI TRANG CHỦ", b"back")]])
+        except Exception as ex:
+            logging.error(f"Lỗi thống kê: {ex}")
+            await e.edit("❌ Đang tải dữ liệu thống kê, vui lòng thử lại sau.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
 
     elif data == "top_users":
         await e.answer()
@@ -424,7 +491,7 @@ async def cb_handler(e):
         await e.delete()
         async with bot.conversation(uid) as conv:
             try:
-                await conv.send_message("📢 Nhập nội dung thông báo bạn muốn gửi đến TOÀN BỘ THÀNH VIÊN:")
+                await conv.send_message("📢 Nhập nội dung thông báo bạn muốn gửi đến  TOÀN BỘ THÀNH VIÊN:")
                 msg = (await conv.get_response()).text.strip()
                 
                 users_res = await asyncio.to_thread(lambda: supabase.table("users").select("user_id").execute())
@@ -910,6 +977,13 @@ async def process_purchase(e, uid, cid, qty, conv=None):
         # Trừ tiền 
         await asyncio.to_thread(lambda: supabase.table("users").update({"balance": user['balance'] - cost}).eq("user_id", uid).execute())
 
+        # ---> THÊM MỚI: CẬP NHẬT THỐNG KÊ LƯỢT BÁN CODE VÀO CACHE SETTING
+        try:
+            current_total_sold = int(await db_get_setting("TOTAL_CODES_SOLD", "0"))
+            await db_set_setting("TOTAL_CODES_SOLD", str(current_total_sold + qty))
+        except:
+            pass
+
         # Tạo mã đơn hàng xịn sò
         order_id = generate_order_id("DH")
         now_str = datetime.now(VN_TZ).strftime('%H:%M:%S %d/%m/%Y')
@@ -1022,6 +1096,33 @@ def webhook():
             sync_db_add_history(uid, "Nạp tiền", "Bank", 1, amt)
             supabase.table("users").update({"balance": new_balance}).eq("user_id", uid).execute()
             
+            # ---> THÊM MỚI: CẬP NHẬT TỔNG NẠP VÀO THỐNG KÊ (Hạn chế read DB nặng)
+            try:
+                current_total_dep = int(sync_db_get_setting("TOTAL_DEPOSIT", "0"))
+                sync_db_set_setting("TOTAL_DEPOSIT", str(current_total_dep + amt))
+            except Exception as e:
+                logging.error(f"Lỗi lưu tổng nạp thống kê: {e}")
+
+            # ---> THÊM MỚI: XỬ LÝ CỘNG HOA HỒNG GIỚI THIỆU (10%)
+            referrer_id = user.get('referrer_id')
+            if referrer_id:
+                try:
+                    commission = int(amt * 0.10)
+                    ref_user = sync_db_get_user(referrer_id)
+                    supabase.table("users").update({"balance": ref_user['balance'] + commission}).eq("user_id", referrer_id).execute()
+                    # (Tùy chọn: Ghi lịch sử nhận hoa hồng nếu muốn admin check được, bỏ qua cũng được, ở đây thêm để an tâm)
+                    sync_db_add_history(referrer_id, "Hoa hồng", "Giới thiệu", 1, commission) 
+                    # Bắn thông báo cho người giới thiệu
+                    asyncio.run_coroutine_threadsafe(
+                        bot.send_message(
+                            referrer_id, 
+                            f"🎊 **BẠN VỪA NHẬN ĐƯỢC HOA HỒNG!**\nThành viên do bạn giới thiệu (ID: `{uid}`) vừa nạp {amt:,}đ.\nBạn được cộng tự động **+{commission:,} VNĐ** (10%) vào tài khoản!"
+                        ), 
+                        loop
+                    )
+                except Exception as e:
+                    logging.error(f"Lỗi xử lý hoa hồng: {e}")
+
             # Tạo mã giao dịch xịn sò
             tx_id = generate_order_id("NAP")
             now_str = datetime.now(VN_TZ).strftime('%H:%M:%S %d/%m/%Y')
@@ -1106,4 +1207,4 @@ async def main():
     client.run_until_disconnected() 
     
 if __name__ == '__main__':
-    loop.run_until_complete(main())
+    loop.run_until_complete(main()) 
