@@ -26,19 +26,6 @@ def run():
 def keep_alive():
     t = Thread(target=run)
     t.start()
-
-app = Flask('')
-
-@app.route('/')
-def home():
-    return "Bot is running!"
-
-def run():
-    app.run(host='0.0.0.0', port=8080)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
     
 # ---> THÊM: CẤU HÌNH GIỜ VIỆT NAM (GMT+7)
 VN_TZ = timezone(timedelta(hours=7))
@@ -141,6 +128,24 @@ def sync_db_set_setting(key, value):
             supabase.table("settings").update({"value": str(value)}).eq("key", key).execute()
     except Exception as e:
         logging.error(f"Lỗi sync_db_set_setting: {e}")
+
+# ---> NÂNG CẤP THÊM: HÀM LẤY LEVEL VIP TỪ LỊCH SỬ NẠP TIỀN
+async def get_user_level_and_discount(uid):
+    try:
+        res = await asyncio.to_thread(lambda: supabase.table("history").select("amount").eq("user_id", uid).eq("action", "Nạp tiền").execute())
+        total_dep = sum([r['amount'] for r in res.data]) if getattr(res, 'data', None) else 0
+        
+        if total_dep >= 10000000:
+            return 3, 0.10 # VIP 3: Giảm 10%
+        elif total_dep >= 5000000:
+            return 2, 0.07 # VIP 2: Giảm 7%
+        elif total_dep >= 2000000:
+            return 1, 0.05 # VIP 1: Giảm 5%
+        else:
+            return 0, 0.0  # Chưa đạt VIP
+    except Exception as e:
+        logging.error(f"Lỗi tính VIP cho user {uid}: {e}")
+        return 0, 0.0
 
 # ==================== LOGIC THÔNG BÁO KÊNH & LỊCH SỬ ====================
 async def send_channel_notify(text):
@@ -346,10 +351,13 @@ async def worker_grab_loop(client, phone):
 # ==================== GIAO DIỆN NGƯỜI DÙNG & GIAO DIỆN CTV ====================
 async def main_menu_text(user):
     bot_intro = await db_get_setting("BOT_INTRO", "Chào mừng bạn đến với hệ thống bán code tự động!")
+    # ---> NÂNG CẤP: HIỂN THỊ VIP LEVEL
+    lv, _ = await get_user_level_and_discount(user['user_id'])
+    vip_str = f"| 🎖 VIP: {lv}" if lv > 0 else ""
     return (
         f"🤖 **HỆ THỐNG CỬA HÀNG CODE VIP** 🤖\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"👤 ID Của Bạn: `{user['user_id']}`\n"
+        f"👤 ID Của Bạn: `{user['user_id']}` {vip_str}\n"
         f"💰 Số dư: **{user['balance']:,} VNĐ** \n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"📝 {bot_intro}"
@@ -378,12 +386,26 @@ async def get_main_btns(uid):
         btns.append([TButton.inline("👑 QUẢN TRỊ ADMIN", b"admin_menu")])
     return btns
 
-# ---> CẬP NHẬT: XỬ LÝ LƯU NGƯỜI GIỚI THIỆU TỪ LINK START
+# ---> CẬP NHẬT: XỬ LÝ LƯU NGƯỜI GIỚI THIỆU TỪ LINK START VÀ ÉP JOIN KÊNH
 @bot.on(events.NewMessage(pattern=r"^/start(?: (.*))?$"))
 async def start(e):
     uid = e.sender_id
     payload = e.pattern_match.group(1)
     
+    # ---> THÊM: LOGIC ÉP JOIN KÊNH (FORCE JOIN)
+    channel = await db_get_setting("FORCE_JOIN_CHANNEL", "Chưa cài đặt")
+    if channel and channel != "Chưa cài đặt" and channel.strip() != "":
+        try:
+            channel_entity = int(channel) if channel.lstrip('-').isdigit() else channel
+            participant = await bot.get_permissions(channel_entity, uid)
+            if not participant.is_participant:
+                btns = [[TButton.url("📢 THAM GIA KÊNH ĐỂ TIẾP TỤC", f"https://t.me/{channel.replace('@', '')}")],
+                        [TButton.inline("✅ ĐÃ THAM GIA", b"check_join")]]
+                await e.respond("⚠️ **YÊU CẦU BẮT BUỘC**\n\nBạn cần tham gia kênh của chúng tôi để sử dụng Bot. Vui lòng tham gia và bấm nút **ĐÃ THAM GIA** bên dưới.", buttons=btns)
+                return
+        except Exception as ex:
+            logging.error(f"Lỗi kiểm tra Force Join: {ex}")
+
     user = await db_get_user(uid)
     
     # Xử lý lưu referrer_id nếu có người giới thiệu và user chưa từng có ref
@@ -409,6 +431,25 @@ async def cb_handler(e):
 
     if data == "back":
         await e.answer() 
+        user = await db_get_user(uid)
+        text = await main_menu_text(user)
+        btns = await get_main_btns(uid)
+        await e.edit(text, buttons=btns)
+
+    # ---> THÊM: XỬ LÝ NÚT CHECK JOIN CỦA TÍNH NĂNG ÉP JOIN KÊNH
+    elif data == "check_join":
+        await e.answer()
+        channel = await db_get_setting("FORCE_JOIN_CHANNEL", "Chưa cài đặt")
+        if channel and channel != "Chưa cài đặt" and channel.strip() != "":
+            try:
+                channel_entity = int(channel) if channel.lstrip('-').isdigit() else channel
+                participant = await bot.get_permissions(channel_entity, uid)
+                if not participant.is_participant:
+                    await e.answer("❌ Bạn chưa tham gia kênh! Vui lòng tham gia để sử dụng bot.", alert=True)
+                    return
+            except Exception as ex:
+                pass
+                
         user = await db_get_user(uid)
         text = await main_menu_text(user)
         btns = await get_main_btns(uid)
@@ -509,11 +550,12 @@ async def cb_handler(e):
                 await conv.send_message("❌ Lỗi: ID phải là số!", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
 
     elif data == "ctv_withdraw":
-        await e.answer()
+        # ---> FIX LỖI TREO NÚT: Báo answer với cache_time=0 để lập tức tắt icon đồng hồ cát
+        await e.answer("Đang tải dữ liệu...", cache_time=0)
         user = await db_get_user(uid)
         if user.get('role') != 'ctv': return
         if user['balance'] < 50000:
-            await e.answer("❌ Số dư tối thiểu để rút là 50,000 VNĐ!", alert=True)
+            await bot.send_message(uid, "❌ Số dư tối thiểu để rút là 50,000 VNĐ!")
             return
             
         await e.delete()
@@ -536,6 +578,10 @@ async def cb_handler(e):
                 insert_res = await asyncio.to_thread(lambda: supabase.table("withdraw_requests").insert({
                     "user_id": uid, "amount": amount, "bank_info": bank_info, "status": "pending"
                 }).execute())
+                
+                if not insert_res.data:
+                    raise Exception("Không thể tạo lệnh rút trong CSDL.")
+                    
                 req_id = insert_res.data[0]['id']
                 
                 # Báo admin duyệt
@@ -555,6 +601,7 @@ async def cb_handler(e):
                 await conv.send_message("❌ Lỗi: Số tiền phải là số nguyên!")
             except Exception as ex:
                 logging.error(f"Lỗi rút tiền CTV: {ex}")
+                await conv.send_message("❌ Quá thời gian chờ hoặc có lỗi kết nối CSDL.", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
 
     # ==================== ADMIN: XỬ LÝ CTV ====================
     elif data == "admin_ctv":
@@ -691,7 +738,7 @@ async def cb_handler(e):
         await e.delete()
         async with bot.conversation(uid) as conv:
             try:
-                await conv.send_message("📢 Nhập nội dung thông báo bạn muốn gửi đến  TOÀN BỘ THÀNH VIÊN:")
+                await conv.send_message("📢 Nhập nội dung thông báo bạn muốn gửi đến TOÀN BỘ THÀNH VIÊN:")
                 msg = (await conv.get_response()).text.strip()
                 
                 users_res = await asyncio.to_thread(lambda: supabase.table("users").select("user_id").execute())
@@ -815,13 +862,17 @@ async def cb_handler(e):
         intro = await db_get_setting("BOT_INTRO", "Chưa cài đặt")
         channel = await db_get_setting("NOTIFY_CHANNEL_ID", "Chưa cài đặt")
         support_link = await db_get_setting("SUPPORT_LINK", "https://t.me/admin")
+        # ---> THÊM: Menu hiển thị Kênh Ép Join
+        force_join = await db_get_setting("FORCE_JOIN_CHANNEL", "Chưa cài đặt")
+        
         txt = (f"⚙️ **CÀI ĐẶT HỆ THỐNG** \n\n"
                f"1️⃣ **Lời chào:** {intro}\n"
                f"2️⃣ **ID Kênh thông báo:** `{channel}`\n"
-               f"3️⃣ **Link Hỗ Trợ:** `{support_link}`")
+               f"3️⃣ **Link Hỗ Trợ:** `{support_link}`\n"
+               f"4️⃣ **Kênh Ép Join:** `{force_join}`")
         btns = [
             [TButton.inline("SỬA LỜI CHÀO", b"set_intro"), TButton.inline("SỬA KÊNH THÔNG BÁO", b"set_channel")],
-            [TButton.inline("SỬA LINK HỖ TRỢ", b"set_support")], 
+            [TButton.inline("SỬA LINK HỖ TRỢ", b"set_support"), TButton.inline("SỬA KÊNH ÉP JOIN", b"set_force_channel")], 
             [TButton.inline("🔙 QUAY LẠI", b"admin_menu")]
         ]
         await e.edit(txt, buttons=btns)
@@ -859,6 +910,19 @@ async def cb_handler(e):
                 response = await conv.get_response()
                 await db_set_setting("SUPPORT_LINK", response.text.strip())
                 await conv.send_message("✅ Đã cập nhật link hỗ trợ thành công!", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
+            except Exception as ex:
+                await conv.send_message("❌ Đã quá thời gian chờ hoặc có lỗi xảy ra.")
+
+    # ---> THÊM: ADMIN ĐẶT KÊNH ÉP JOIN
+    elif data == "set_force_channel":
+        await e.answer()
+        await e.delete()
+        async with bot.conversation(uid) as conv:
+            try:
+                await conv.send_message("📢 Nhập Username hoặc ID Kênh để ép Join (VD: @kiemtienonline48h hoặc -100123...):\n*(Nhập 'Chưa cài đặt' để tắt tính năng này)*")
+                response = await conv.get_response()
+                await db_set_setting("FORCE_JOIN_CHANNEL", response.text.strip())
+                await conv.send_message("✅ Đã cập nhật Kênh Ép Join thành công!", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
             except Exception as ex:
                 await conv.send_message("❌ Đã quá thời gian chờ hoặc có lỗi xảy ra.")
 
@@ -1086,10 +1150,20 @@ async def cb_handler(e):
             except:
                 stock = 0
                 
+            # ---> NÂNG CẤP: HIỂN THỊ VIP LEVEL CHO DANH MỤC
+            lv, discount_rate = await get_user_level_and_discount(uid)
+            discount_price = int(cat['price'] * (1 - discount_rate))
+                
             txt = (f"🎮 **{cat['name']}** \n━━━━━━━━━━━━\n"
-                   f"📝 {cat['description']}\n\n"
-                   f"💵 Giá bán: **{cat['price']:,}đ** \n"
-                   f"📦 Tồn kho hiện tại: **{stock}** code")
+                   f"📝 {cat['description']}\n\n")
+            
+            if discount_rate > 0:
+                txt += f"💵 Giá gốc: ~{cat['price']:,}đ~\n"
+                txt += f"🔥 Giá VIP {lv}: **{discount_price:,}đ** (Giảm {int(discount_rate*100)}%)\n"
+            else:
+                txt += f"💵 Giá bán: **{cat['price']:,}đ** \n"
+                
+            txt += f"📦 Tồn kho hiện tại: **{stock}** code"
             
             btns = [
                 [TButton.inline("🛒 MUA 1 CODE", f"buy_{cid}_1")],
@@ -1148,7 +1222,7 @@ async def cb_handler(e):
                f"*(Vui lòng bấm nút mở mã QR bên dưới hoặc chuyển khoản đúng nội dung để được cộng tiền tự động 24/7)*")
         await e.edit(txt, buttons=[[TButton.url("🖼 BẤM VÀO ĐÂY ĐỂ MỞ MÃ QR", qr)], [TButton.inline("🔙 QUAY LẠI", b"dep_menu")]])
 
-# ---> CẬP NHẬT: GIAO DIỆN HÓA ĐƠN VÀ CHIA TIỀN CHO CTV KHI MUA CODE
+# ---> CẬP NHẬT: TÍNH TOÁN VIP KHI THANH TOÁN
 async def process_purchase(e, uid, cid, qty, conv=None):
     try:
         cat_res = await asyncio.to_thread(lambda: supabase.table("categories").select("*").eq("id", cid).execute())
@@ -1160,7 +1234,11 @@ async def process_purchase(e, uid, cid, qty, conv=None):
             
         cat = cat_res.data[0]
         user = await db_get_user(uid)
-        cost = cat['price'] * qty
+        
+        # ---> TÍNH TIỀN GIẢM GIÁ VIP
+        lv, discount_rate = await get_user_level_and_discount(uid)
+        original_cost = cat['price'] * qty
+        cost = int(original_cost * (1 - discount_rate))
         
         if user['balance'] < cost: 
             msg = "❌ Rất tiếc, số dư của bạn không đủ để thanh toán. Vui lòng nạp thêm tiền!"
@@ -1214,13 +1292,14 @@ async def process_purchase(e, uid, cid, qty, conv=None):
         now_str = datetime.now(VN_TZ).strftime('%H:%M:%S %d/%m/%Y')
 
         # Gom code và gửi
+        vip_bill_str = f" (Đã áp dụng giảm giá VIP {lv})" if lv > 0 else ""
         res_text = (
             f"✅ **THANH TOÁN THÀNH CÔNG!**\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"🔖 **Mã Đơn:** `{order_id}`\n"
             f"🎮 **Sản phẩm:** {cat['name']}\n"
             f"📦 **Số lượng:** {qty} code\n"
-            f"💵 **Thanh toán:** **-{cost:,} VNĐ**\n"
+            f"💵 **Thanh toán:** **-{cost:,} VNĐ**{vip_bill_str}\n"
             f"💰 **Số dư còn lại:** **{user['balance'] - cost:,} VNĐ**\n"
             f"⏰ **Thời gian:** `{now_str}`\n"
             f"━━━━━━━━━━━━━━━━━━\n"
@@ -1432,4 +1511,4 @@ async def main():
     client.run_until_disconnected() 
     
 if __name__ == '__main__':
-    loop.run_until_complete(main()) 
+    loop.run_until_complete(main())
