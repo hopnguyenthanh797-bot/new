@@ -14,7 +14,7 @@ from telethon.sessions import StringSession
 from telethon.errors import SessionPasswordNeededError
 from supabase import create_client, Client
 
-app = Flask('')
+app = Flask(__name__)
 
 @app.route('/')
 def home():
@@ -423,6 +423,13 @@ async def get_main_btns(uid):
 @bot.on(events.NewMessage(pattern=r"^/start(?: (.*))?$"))
 async def start(e):
     uid = e.sender_id
+    
+    # KIỂM TRA BẢO TRÌ
+    status = await db_get_setting("MAINTENANCE_MODE", "OFF")
+    if status == "ON" and uid != ADMIN_ID:
+        await e.respond("⚠️ **HỆ THỐNG ĐANG BẢO TRÌ**\nBot đang được nâng cấp, vui lòng quay lại sau nhé!")
+        return
+        
     payload = e.pattern_match.group(1)
     
     # FIX LỖI ÉP JOIN KÊNH BẰNG TRY-EXCEPT CHẶT HƠN
@@ -459,6 +466,12 @@ async def start(e):
 async def cb_handler(e):
     uid = e.sender_id
     data = e.data.decode()
+
+    # KIỂM TRA BẢO TRÌ
+    maint_status = await db_get_setting("MAINTENANCE_MODE", "OFF")
+    if maint_status == "ON" and uid != ADMIN_ID:
+        await e.answer("⚠️ Hệ thống đang bảo trì để nâng cấp. Vui lòng quay lại sau!", alert=True)
+        return
 
     if data == "back":
         await e.answer() 
@@ -499,17 +512,39 @@ async def cb_handler(e):
                f"━━━━━━━━━━━━━━━━━━\n"
                f"👤 **CTV:** `{uid}`\n"
                f"💰 **Số dư ví CTV (Hoa hồng):** **{user.get('ctv_balance', 0):,} VNĐ**\n"
-               f"*(Phí hệ thống/Admin khi code của bạn được bán ra là 1,000đ/code)*\n"
+               f"*(Hệ thống sẽ thu phí admin 10% doanh thu mỗi khi có đơn thành công)*\n"
                f"━━━━━━━━━━━━━━━━━━\n"
                f"Vui lòng chọn chức năng quản lý bên dưới:")
                
         btns = [
             [TButton.inline("➕ THÊM DANH MỤC (SẢN PHẨM) MỚI", b"ctv_add_cat")],
             [TButton.inline("📦 UP CODE LÊN SẢN PHẨM CỦA BẠN", b"ctv_add_codes")],
+            [TButton.inline("📜 LỊCH SỬ ĐƠN HÀNG ĐÃ BÁN", b"ctv_my_history")],
             [TButton.inline("💳 RÚT DOANH THU VỀ BANK", b"ctv_withdraw")],
             [TButton.inline("🔙 QUAY LẠI TRANG CHỦ", b"back")]
         ]
         await e.edit(txt, buttons=btns)
+
+    # TÍNH NĂNG MỚI: CTV TỰ XEM LỊCH SỬ ĐƠN HÀNG CỦA MÌNH
+    elif data == "ctv_my_history":
+        await e.answer()
+        user = await db_get_user(uid)
+        if user.get('role') != 'ctv': return
+        
+        res = await asyncio.to_thread(lambda: supabase.table("ctv_history").select("*").eq("ctv_id", uid).order("created_at", desc=True).limit(15).execute())
+        if not getattr(res, 'data', None):
+            await e.edit("❌ Bạn chưa có đơn hàng nào được bán ra.", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
+            return
+            
+        txt = f"📜 **LỊCH SỬ BÁN HÀNG CỦA BẠN**\n━━━━━━━━━━━━━━━━━━\n"
+        for h in res.data:
+            dt = datetime.fromisoformat(h['created_at'].replace('Z', '+00:00'))
+            time_str = dt.astimezone(VN_TZ).strftime('%H:%M %d/%m')
+            txt += f"🔹 `{time_str}` | Đã bán {h['qty']} code {h['category_name']}\n"
+            txt += f"   👤 ID Khách mua: `{h['buyer_id']}`\n"
+            txt += f"   💰 Hoa hồng nhận: **+{h['revenue']:,}đ** (Phí: -{h['admin_fee']:,}đ)\n"
+            
+        await e.edit(txt, buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
 
     elif data == "ctv_add_cat":
         await e.answer()
@@ -638,6 +673,7 @@ async def cb_handler(e):
         btns = [
             [TButton.inline("➕ CẤP / HỦY QUYỀN CTV", b"admin_ctv_role")],
             [TButton.inline("📜 XEM LỊCH SỬ BÁN CODE CỦA CTV", b"admin_ctv_history")],
+            [TButton.inline("💰 CỘNG / TRỪ VÍ CTV", b"admin_money_ctv")],
             [TButton.inline("🔙 ADMIN", b"admin_menu")]
         ]
         await e.edit("🤝 **QUẢN LÝ ĐỐI TÁC (CTV)**\nVui lòng chọn chức năng:", buttons=btns)
@@ -662,6 +698,35 @@ async def cb_handler(e):
                     await conv.send_message(f"✅ Đã CẤP quyền CTV thành công cho tài khoản `{target_id}`", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
             except ValueError:
                 await conv.send_message("❌ ID phải là số!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
+
+    # TÍNH NĂNG MỚI: ADMIN CỘNG/TRỪ TIỀN VÍ CTV
+    elif data == "admin_money_ctv":
+        await e.answer()
+        if uid != ADMIN_ID: return
+        await e.delete()
+        async with bot.conversation(uid) as conv:
+            try:
+                await conv.send_message("👤 Nhập ID của CTV cần cộng/trừ tiền:")
+                tid = int((await conv.get_response()).text.strip())
+                
+                target_user = await db_get_user(tid)
+                if target_user.get('role') != 'ctv':
+                    await conv.send_message("❌ Lỗi: Người dùng này không phải là Cộng Tác Viên!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
+                    return
+                
+                await conv.send_message("💰 Nhập số tiền VÍ CTV (Cộng thêm thì ghi 50000, Trừ đi thì ghi -50000):")
+                amt = int((await conv.get_response()).text.strip())
+                
+                new_balance = int(target_user.get('ctv_balance', 0)) + amt
+                if new_balance < 0: new_balance = 0
+                
+                await asyncio.to_thread(lambda: supabase.table("users").update({"ctv_balance": new_balance}).eq("user_id", tid).execute())
+                await conv.send_message(f"✅ Thành công! Số dư VÍ CTV mới của `{tid}` là: **{new_balance:,}đ**", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
+            except ValueError:
+                await conv.send_message("❌ ID và Số tiền phải là chữ số!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
+            except Exception as ex:
+                logging.error(f"Lỗi admin_money_ctv: {ex}")
+                await conv.send_message("❌ Lỗi cơ sở dữ liệu!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
 
     # TÍNH NĂNG MỚI: ADMIN XEM LỊCH SỬ BÁN HÀNG CỦA CTV
     elif data == "admin_ctv_history":
@@ -929,19 +994,32 @@ async def cb_handler(e):
         channel = await db_get_setting("NOTIFY_CHANNEL_ID", "Chưa cài đặt")
         support_link = await db_get_setting("SUPPORT_LINK", "https://t.me/admin")
         force_join = await db_get_setting("FORCE_JOIN_CHANNEL", "Chưa cài đặt")
+        maint_status = await db_get_setting("MAINTENANCE_MODE", "OFF")
+        maint_icon = "🟢 ĐANG BẬT" if maint_status == "ON" else "🔴 ĐANG TẮT"
         
         txt = (f"⚙️ **CÀI ĐẶT HỆ THỐNG** \n\n"
                f"1️⃣ **Lời chào:** {intro}\n"
                f"2️⃣ **ID Kênh thông báo:** `{channel}`\n"
                f"3️⃣ **Link Hỗ Trợ:** `{support_link}`\n"
-               f"4️⃣ **Kênh Ép Join:** `{force_join}`")
+               f"4️⃣ **Kênh Ép Join:** `{force_join}`\n"
+               f"5️⃣ **Trạng thái Bảo Trì:** {maint_status}")
         btns = [
             [TButton.inline("SỬA LỜI CHÀO", b"set_intro"), TButton.inline("SỬA KÊNH THÔNG BÁO", b"set_channel")],
             [TButton.inline("SỬA LINK HỖ TRỢ", b"set_support"), TButton.inline("SỬA KÊNH ÉP JOIN", b"set_force_channel")], 
             [TButton.inline("SỬA QUẢNG CÁO TỰ ĐỘNG (12H)", b"set_auto_ad")],
+            [TButton.inline(f"🛠 BẢO TRÌ: {maint_icon}", b"toggle_maintenance")],
             [TButton.inline("🔙 QUAY LẠI", b"admin_menu")]
         ]
         await e.edit(txt, buttons=btns)
+
+    # TÍNH NĂNG MỚI: ADMIN BẬT/TẮT BẢO TRÌ
+    elif data == "toggle_maintenance":
+        await e.answer()
+        if uid != ADMIN_ID: return
+        current = await db_get_setting("MAINTENANCE_MODE", "OFF")
+        new_status = "ON" if current == "OFF" else "OFF"
+        await db_set_setting("MAINTENANCE_MODE", new_status)
+        await e.edit(f"✅ Đã {'BẬT' if new_status == 'ON' else 'TẮT'} chế độ bảo trì thành công!", buttons=[[TButton.inline("🔙 VỀ CÀI ĐẶT", b"admin_settings")]])
 
     elif data == "set_intro":
         await e.answer()
@@ -991,7 +1069,6 @@ async def cb_handler(e):
             except Exception as ex:
                 await conv.send_message("❌ Đã quá thời gian chờ hoặc có lỗi xảy ra.")
 
-    # TÍNH NĂNG MỚI: ADMIN SET QUẢNG CÁO TỰ ĐỘNG
     elif data == "set_auto_ad":
         await e.answer()
         await e.delete()
@@ -1298,7 +1375,7 @@ async def cb_handler(e):
                f"*(Vui lòng bấm nút mở mã QR bên dưới hoặc chuyển khoản đúng nội dung để được cộng tiền tự động 24/7)*")
         await e.edit(txt, buttons=[[TButton.url("🖼 BẤM VÀO ĐÂY ĐỂ MỞ MÃ QR", qr)], [TButton.inline("🔙 QUAY LẠI", b"dep_menu")]])
 
-# ---> CẬP NHẬT: XỬ LÝ CHIA DOANH THU CTV (YÊU CẦU 1)
+# ---> CẬP NHẬT: XỬ LÝ CHIA DOANH THU CTV ĐÃ ĐƯỢC FIX LỖI TẬN GỐC
 async def process_purchase(e, uid, cid, qty, conv=None):
     try:
         cat_res = await asyncio.to_thread(lambda: supabase.table("categories").select("*").eq("id", cid).execute())
@@ -1335,13 +1412,18 @@ async def process_purchase(e, uid, cid, qty, conv=None):
 
         # 2. XỬ LÝ CHIA DOANH THU & GHI LỊCH SỬ CHO CTV
         owner_id = cat.get('owner_id', 0)
-        if owner_id and owner_id != 0:
-            admin_fee = 1000 * qty
+        # Ép kiểu an toàn sang Integer để DB đọc được chính xác
+        if owner_id and int(owner_id) != 0:
+            owner_id = int(owner_id) 
+            
+            # ĐÃ FIX: Tính phí admin 10% như trong ảnh bạn yêu cầu
+            admin_fee = int(cost * 0.1) 
             ctv_revenue = cost - admin_fee
+            
             if ctv_revenue > 0:
                 try:
                     ctv_user = await db_get_user(owner_id)
-                    new_ctv_balance = ctv_user.get('ctv_balance', 0) + ctv_revenue
+                    new_ctv_balance = int(ctv_user.get('ctv_balance', 0)) + ctv_revenue
                     
                     # Cộng tiền vào ví CTV
                     await asyncio.to_thread(lambda: supabase.table("users").update({"ctv_balance": new_ctv_balance}).eq("user_id", owner_id).execute())
@@ -1463,12 +1545,6 @@ async def add_clone_process(e):
             await conv.send_message("❌ Có lỗi xảy ra trong quá trình đăng nhập (Sai sdt, sai OTP, hoặc Timeout).", buttons=[[TButton.inline("🔙", b"admin_clones")]])
 
 # ==================== WEBHOOK & KEEP-ALIVE (TREO 24/7) ====================
-app = Flask(__name__)
-
-@app.route('/', methods=['GET'])
-def home():
-    return "Bot is running 24/7! Connection OK.", 200
-
 @app.route('/sepay-webhook', methods=['POST'])
 def webhook():
     try:
