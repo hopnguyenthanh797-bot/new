@@ -1585,6 +1585,5 @@ async def main():
         
     await bot.run_until_disconnected()
 
-    keep_alive()  
-    print("Bot đang chạy...")
-    client.run_until_disconnected() 
+if __name__ == "__main__":
+    loop.run_until_complete(main())
