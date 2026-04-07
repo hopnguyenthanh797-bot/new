@@ -1686,7 +1686,7 @@ Thread(target=run_web).start()
 def keep_alive():
     while True:
         try:
-            urllib.request.urlopen("http://127.0.0.1:10000/", timeout=10)
+            urllib.request.urlopen("http://127.0.0.1:8080/", timeout=10)
         except Exception as e:
             logging.warning(f"Lỗi ping keep_alive: {e}")
         time.sleep(120) 
