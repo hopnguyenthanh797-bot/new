@@ -26,6 +26,9 @@ def run():
 def keep_alive():
     t = Thread(target=run)
     t.start()
+
+async def worker_grab_loop(client, phone):
+    global cached_categories, last_cache_time
     
 # ---> THÊM: CẤU HÌNH GIỜ VIỆT NAM (GMT+7)
 VN_TZ = timezone(timedelta(hours=7))
@@ -288,8 +291,6 @@ async def auto_broadcast_ad():
         await asyncio.sleep(43200)
 
 # ==================== LOGIC ĐẬP HỘP ĐA DANH MỤC ====================
-async def worker_grab_loop(client, phone):
-    global cached_categories, last_cache_time
     try:
         if not client.is_connected(): 
             await client.connect()
