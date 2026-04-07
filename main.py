@@ -14,6 +14,7 @@ from telethon.sessions import StringSession
 from telethon.errors import SessionPasswordNeededError
 from supabase import create_client, Client
 
+# 1. KHỞI TẠO FLASK (Dán sát lề trái)
 app = Flask(__name__)
 
 @app.route('/')
@@ -25,23 +26,22 @@ def run():
 
 def keep_alive():
     t = Thread(target=run)
+    t.daemon = True
     t.start()
 
-# Gọi hàm keep_alive để Render không ngủ
 keep_alive()
 
-# --- KHU VỰC CẤU HÌNH (SÁT LỀ TRÁI) ---
+# 2. CẤU HÌNH BIẾN (Dán sát lề trái - Phải nằm TRÊN các hàm sử dụng chúng)
 VN_TZ = timezone(timedelta(hours=7))
-
-def generate_order_id(prefix="MD"):
-    return f"{prefix}-{''.join(random.choices(string.ascii_uppercase + string.digits, k=6))}"
-
 TOP1_REWARD = 5000
 TOP2_REWARD = 2500
 TOP3_REWARD = 1000
 last_reward_date = ""
 
-# ==================== CẤU HÌNH HỆ THỐNG CƠ BẢN ====================
+def generate_order_id(prefix="MD"):
+    return f"{prefix}-{''.join(random.choices(string.ascii_uppercase + string.digits, k=6))}"
+
+# 3. THÔNG TIN HỆ THỐNG
 SUPABASE_URL = "https://npjjarsmvmqvhdnkvtxc.supabase.co" 
 SUPABASE_KEY = "sb_publishable_gVXyT92FL0XpsiiEcerYFQ_RXE3n0ke"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -49,7 +49,6 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 API_ID = 36437338
 API_HASH = "18d34c7efc396d277f3db62baa078efc"
 BOT_TOKEN = "8654764187:AAGSqHRK59Ood6Z32KktLOpiytlZgWbD24E"
-
 STK_MSB = "96886693002613"
 ADMIN_ID = 7816353760 
 
@@ -60,14 +59,14 @@ bot.parse_mode = 'html'
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
-# Thêm biến Cache Global để chống rate limit Supabase
 cached_categories = []
 last_cache_time = 0
 
-# --- TIẾP THEO LÀ HÀM WORKER CỦA ÔNG ---
+# 4. CÁC HÀM XỬ LÝ (Bắt đầu từ đây mới đến worker)
 async def worker_grab_loop(client, phone):
     global cached_categories, last_cache_time
-    # Code của hàm worker tiếp tục ở đây...
+    # Nội dung hàm worker của ông tiếp tục ở dưới này...
+    print(f"Đang chạy worker cho {phone}...")
 
 # ==================== CẤU HÌNH ICON ĐỘNG (CUSTOM EMOJIS) ====================
 GLOBAL_EMOJIS = {
