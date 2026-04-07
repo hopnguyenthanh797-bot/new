@@ -20,19 +20,23 @@ app = Flask(__name__)
 def home():
     return "Bot is running!"
 
-# ---> THÊM: CẤU HÌNH GIỜ VIỆT NAM (GMT+7)
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+# --- KHU VỰC CẤU HÌNH (SÁT LỀ TRÁI) ---
 VN_TZ = timezone(timedelta(hours=7))
 
-# ---> THÊM: HÀM TẠO MÃ GIAO DỊCH XỊN SÒ (ORDER ID)
 def generate_order_id(prefix="MD"):
     return f"{prefix}-{''.join(random.choices(string.ascii_uppercase + string.digits, k=6))}"
 
-# ---> THÊM: CẤU HÌNH PHẦN THƯỞNG CHO TOP NẠP NGÀY
 TOP1_REWARD = 5000
 TOP2_REWARD = 2500
 TOP3_REWARD = 1000
 last_reward_date = ""
-
 # ==================== CẤU HÌNH HỆ THỐNG CƠ BẢN ====================
 SUPABASE_URL = "https://npjjarsmvmqvhdnkvtxc.supabase.co" 
 SUPABASE_KEY = "sb_publishable_gVXyT92FL0XpsiiEcerYFQ_RXE3n0ke"
