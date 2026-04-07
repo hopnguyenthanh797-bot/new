@@ -14,7 +14,7 @@ from telethon.sessions import StringSession
 from telethon.errors import SessionPasswordNeededError
 from supabase import create_client, Client
 
-# 1. KHỞI TẠO FLASK (Dán sát lề trái)
+# --- 1. WEB SERVER ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -31,7 +31,7 @@ def keep_alive():
 
 keep_alive()
 
-# 2. CẤU HÌNH BIẾN (Dán sát lề trái - Phải nằm TRÊN các hàm sử dụng chúng)
+# --- 2. CẤU HÌNH HỆ THỐNG ---
 VN_TZ = timezone(timedelta(hours=7))
 TOP1_REWARD = 5000
 TOP2_REWARD = 2500
@@ -41,7 +41,6 @@ last_reward_date = ""
 def generate_order_id(prefix="MD"):
     return f"{prefix}-{''.join(random.choices(string.ascii_uppercase + string.digits, k=6))}"
 
-# 3. THÔNG TIN HỆ THỐNG
 SUPABASE_URL = "https://npjjarsmvmqvhdnkvtxc.supabase.co" 
 SUPABASE_KEY = "sb_publishable_gVXyT92FL0XpsiiEcerYFQ_RXE3n0ke"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -62,11 +61,17 @@ asyncio.set_event_loop(loop)
 cached_categories = []
 last_cache_time = 0
 
-# 4. CÁC HÀM XỬ LÝ (Bắt đầu từ đây mới đến worker)
+# --- 3. HÀM XỬ LÝ ---
 async def worker_grab_loop(client, phone):
     global cached_categories, last_cache_time
-    # Nội dung hàm worker của ông tiếp tục ở dưới này...
-    print(f"Đang chạy worker cho {phone}...")
+    try:
+        print(f"Bắt đầu worker cho: {phone}")
+        # Đoạn xử lý của ông dán vào đây...
+        await asyncio.sleep(1)
+    except Exception as e:
+        print(f"Lỗi worker: {e}")
+
+# Dán nốt các hàm còn lại của ông vào đây...
 
 # ==================== CẤU HÌNH ICON ĐỘNG (CUSTOM EMOJIS) ====================
 GLOBAL_EMOJIS = {
