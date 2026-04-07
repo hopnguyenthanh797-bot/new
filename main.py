@@ -14,7 +14,6 @@ from telethon.sessions import StringSession
 from telethon.errors import SessionPasswordNeededError
 from supabase import create_client, Client
 
-# --- 1. WEB SERVER ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -26,21 +25,22 @@ def run():
 
 def keep_alive():
     t = Thread(target=run)
-    t.daemon = True
     t.start()
 
-keep_alive()
-
-# --- 2. CẤU HÌNH HỆ THỐNG ---
+# ---> CẤU HÌNH GIỜ VIỆT NAM (GMT+7)
 VN_TZ = timezone(timedelta(hours=7))
+
+# ---> HÀM TẠO MÃ GIAO DỊCH XỊN SÒ (ORDER ID)
+def generate_order_id(prefix="MD"):
+    return f"{prefix}-{''.join(random.choices(string.ascii_uppercase + string.digits, k=6))}"
+
+# ---> CẤU HÌNH PHẦN THƯỞNG CHO TOP NẠP NGÀY
 TOP1_REWARD = 5000
 TOP2_REWARD = 2500
 TOP3_REWARD = 1000
 last_reward_date = ""
 
-def generate_order_id(prefix="MD"):
-    return f"{prefix}-{''.join(random.choices(string.ascii_uppercase + string.digits, k=6))}"
-
+# ==================== CẤU HÌNH HỆ THỐNG CƠ BẢN ====================
 SUPABASE_URL = "https://npjjarsmvmqvhdnkvtxc.supabase.co" 
 SUPABASE_KEY = "sb_publishable_gVXyT92FL0XpsiiEcerYFQ_RXE3n0ke"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -48,30 +48,20 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 API_ID = 36437338
 API_HASH = "18d34c7efc396d277f3db62baa078efc"
 BOT_TOKEN = "8654764187:AAGSqHRK59Ood6Z32KktLOpiytlZgWbD24E"
+
 STK_MSB = "96886693002613"
 ADMIN_ID = 7816353760 
 
 logging.basicConfig(level=logging.INFO)
 bot = TelegramClient(StringSession(), API_ID, API_HASH)
-bot.parse_mode = 'html'
+bot.parse_mode = 'html' # BẮT BUỘC SỬ DỤNG HTML ĐỂ HIỂN THỊ EMOJI ĐỘNG
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
+# Thêm biến Cache Global để chống rate limit Supabase
 cached_categories = []
 last_cache_time = 0
-
-# --- 3. HÀM XỬ LÝ ---
-async def worker_grab_loop(client, phone):
-    global cached_categories, last_cache_time
-    try:
-        print(f"Bắt đầu worker cho: {phone}")
-        # Đoạn xử lý của ông dán vào đây...
-        await asyncio.sleep(1)
-    except Exception as e:
-        print(f"Lỗi worker: {e}")
-
-# Dán nốt các hàm còn lại của ông vào đây...
 
 # ==================== CẤU HÌNH ICON ĐỘNG (CUSTOM EMOJIS) ====================
 GLOBAL_EMOJIS = {
@@ -249,12 +239,12 @@ async def auto_daily_reward():
                 if getattr(res, 'data', None):
                     top_data = {}
                     for r in res.data:
-                        uid_str = r['user_id']
-                        top_data[uid_str] = top_data.get(uid_str, 0) + r['amount']
+                        # ĐIỀU KIỆN TỐI THIỂU 20K
+                        if r['amount'] >= 20000:
+                            uid_str = r['user_id']
+                            top_data[uid_str] = top_data.get(uid_str, 0) + r['amount']
                     
-                    # CẬP NHẬT: Chỉ lấy những user nạp từ 20k trở lên
-                    eligible_top_data = {k: v for k, v in top_data.items() if v >= 20000}
-                    sorted_top = sorted(eligible_top_data.items(), key=lambda x: x[1], reverse=True)[:3]
+                    sorted_top = sorted(top_data.items(), key=lambda x: x[1], reverse=True)[:3]
                     
                     if sorted_top:
                         rewards = [TOP1_REWARD, TOP2_REWARD, TOP3_REWARD]
@@ -279,7 +269,7 @@ async def auto_daily_reward():
             
         await asyncio.sleep(40) 
 
-# ---> CẬP NHẬT: AUTO BROADCAST QUẢNG CÁO MỖI 6 TIẾNG (CÓ KÈM ẢNH)
+# ---> TÍNH NĂNG MỚI: AUTO BROADCAST QUẢNG CÁO MỖI 6 TIẾNG (CÓ KÈM ẢNH)
 async def auto_broadcast_ad():
     while True:
         try:
@@ -873,12 +863,12 @@ async def cb_handler(e):
             top_data = {}
             if getattr(res, 'data', None):
                 for r in res.data:
-                    uid_str = r['user_id']
-                    top_data[uid_str] = top_data.get(uid_str, 0) + r['amount']
+                    # ĐIỀU KIỆN TỐI THIỂU 20K
+                    if r['amount'] >= 20000:
+                        uid_str = r['user_id']
+                        top_data[uid_str] = top_data.get(uid_str, 0) + r['amount']
             
-            # CẬP NHẬT: Lọc những người nạp >= 20000
-            eligible_top_data = {k: v for k, v in top_data.items() if v >= 20000}
-            sorted_top = sorted(eligible_top_data.items(), key=lambda x: x[1], reverse=True)[:10]
+            sorted_top = sorted(top_data.items(), key=lambda x: x[1], reverse=True)[:10]
             
             if not sorted_top:
                 await e.edit("🏆 Hôm nay chưa có đại gia nào đạt mốc nạp 20k.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
@@ -948,12 +938,12 @@ async def cb_handler(e):
             top_data = {}
             if getattr(res, 'data', None):
                 for r in res.data:
-                    uid_str = r['user_id']
-                    top_data[uid_str] = top_data.get(uid_str, 0) + r['amount']
+                    # ĐIỀU KIỆN TỐI THIỂU 20K
+                    if r['amount'] >= 20000:
+                        uid_str = r['user_id']
+                        top_data[uid_str] = top_data.get(uid_str, 0) + r['amount']
             
-            # CẬP NHẬT: Lọc điều kiện >= 20k
-            eligible_top_data = {k: v for k, v in top_data.items() if v >= 20000}
-            sorted_top = sorted(eligible_top_data.items(), key=lambda x: x[1], reverse=True)[:5]
+            sorted_top = sorted(top_data.items(), key=lambda x: x[1], reverse=True)[:5]
             
             if not sorted_top:
                 await e.edit(f"{emo('ERROR')} Hôm nay chưa có đại gia nào đạt mốc 20k để thông báo.", buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
