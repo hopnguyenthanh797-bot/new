@@ -20,19 +20,6 @@ app = Flask(__name__)
 def home():
     return "Bot is running!"
 
-def run():
-    app.run(host='0.0.0.0', port=8080)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-
-time.sleep(120)
-
-# --- DÁN VÀO ĐÂY VÀ PHẢI SÁT LỀ TRÁI NHƯ THẾ NÀY ---
-async def worker_grab_loop(client, phone):
-    global cached_categories, last_cache_time
-    
 # ---> THÊM: CẤU HÌNH GIỜ VIỆT NAM (GMT+7)
 VN_TZ = timezone(timedelta(hours=7))
 
@@ -248,7 +235,9 @@ async def auto_daily_reward():
                         uid_str = r['user_id']
                         top_data[uid_str] = top_data.get(uid_str, 0) + r['amount']
                     
-                    sorted_top = sorted(top_data.items(), key=lambda x: x[1], reverse=True)[:3]
+                    # CẬP NHẬT: Chỉ lấy những user nạp từ 20k trở lên
+                    eligible_top_data = {k: v for k, v in top_data.items() if v >= 20000}
+                    sorted_top = sorted(eligible_top_data.items(), key=lambda x: x[1], reverse=True)[:3]
                     
                     if sorted_top:
                         rewards = [TOP1_REWARD, TOP2_REWARD, TOP3_REWARD]
@@ -273,27 +262,37 @@ async def auto_daily_reward():
             
         await asyncio.sleep(40) 
 
-# ---> TÍNH NĂNG MỚI: AUTO BROADCAST QUẢNG CÁO MỖI 12 TIẾNG
+# ---> CẬP NHẬT: AUTO BROADCAST QUẢNG CÁO MỖI 6 TIẾNG (CÓ KÈM ẢNH)
 async def auto_broadcast_ad():
     while True:
         try:
             ad_msg = await db_get_setting("AUTO_AD_MSG", "Chưa cài đặt")
+            ad_img = await db_get_setting("AUTO_AD_IMAGE", "Chưa cài đặt")
+            
             if ad_msg and ad_msg != "Chưa cài đặt" and ad_msg.strip() != "":
                 users_res = await asyncio.to_thread(lambda: supabase.table("users").select("user_id").execute())
                 if getattr(users_res, 'data', None):
                     for u in users_res.data:
                         try:
-                            await bot.send_message(int(u['user_id']), f"{emo('NOTIFY')} <b>THÔNG TIN TỪ HỆ THỐNG</b>\n\n{ad_msg}")
+                            msg_text = f"{emo('NOTIFY')} <b>THÔNG TIN TỪ HỆ THỐNG</b>\n\n{ad_msg}"
+                            
+                            # Nếu có link ảnh hợp lệ thì gửi ảnh + caption, ngược lại gửi text
+                            if ad_img and ad_img.startswith("http"):
+                                await bot.send_file(int(u['user_id']), file=ad_img, caption=msg_text, parse_mode='html')
+                            else:
+                                await bot.send_message(int(u['user_id']), msg_text)
                             await asyncio.sleep(0.1)
                         except:
                             pass
         except Exception as e:
             logging.error(f"Lỗi auto spam quảng cáo: {e}")
             
-        # Nghỉ 12 tiếng = 43200 giây
-        await asyncio.sleep(43200)
+        # Nghỉ 6 tiếng = 21600 giây
+        await asyncio.sleep(21600)
 
 # ==================== LOGIC ĐẬP HỘP ĐA DANH MỤC ====================
+async def worker_grab_loop(client, phone):
+    global cached_categories, last_cache_time
     try:
         if not client.is_connected(): 
             await client.connect()
@@ -847,6 +846,7 @@ async def cb_handler(e):
             logging.error(f"Lỗi thống kê: {ex}")
             await e.edit(f"{emo('ERROR')} Đang tải dữ liệu thống kê, vui lòng thử lại sau.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
 
+    # CẬP NHẬT: THÊM ĐIỀU KIỆN TỐI THIỂU 20K VÀO BẢNG XẾP HẠNG
     elif data == "top_users":
         await e.answer()
         try:
@@ -859,10 +859,12 @@ async def cb_handler(e):
                     uid_str = r['user_id']
                     top_data[uid_str] = top_data.get(uid_str, 0) + r['amount']
             
-            sorted_top = sorted(top_data.items(), key=lambda x: x[1], reverse=True)[:10]
+            # CẬP NHẬT: Lọc những người nạp >= 20000
+            eligible_top_data = {k: v for k, v in top_data.items() if v >= 20000}
+            sorted_top = sorted(eligible_top_data.items(), key=lambda x: x[1], reverse=True)[:10]
             
             if not sorted_top:
-                await e.edit("🏆 Hôm nay chưa có đại gia nào nạp tiền.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
+                await e.edit("🏆 Hôm nay chưa có đại gia nào đạt mốc nạp 20k.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
                 return
             
             txt = "🏆 <b>BẢNG XẾP HẠNG TOP NẠP HÔM NAY</b> 🏆\n━━━━━━━━━━━━━━━━━━\n"
@@ -870,7 +872,7 @@ async def cb_handler(e):
             for i, (user_id, total_amt) in enumerate(sorted_top):
                 txt += f"{medals[i]} ID: <code>{user_id}</code> - Tổng nạp: <b>{total_amt:,}đ</b>\n"
             txt += "━━━━━━━━━━━━━━━━━━\n🕒 Cập nhật lúc: " + datetime.now(VN_TZ).strftime('%H:%M %d/%m/%Y')
-            txt += f"\n{emo('GIFT')} <i>3 Top đầu sẽ được hệ thống cộng thưởng tự động vào cuối ngày!</i>"
+            txt += f"\n{emo('GIFT')} <i>3 Top đầu (Tối thiểu 20k) sẽ được cộng thưởng tự động vào cuối ngày!</i>"
             
             await e.edit(txt, buttons=[[TButton.inline("🔙 QUAY LẠI TRANG CHỦ", b"back")]])
         except Exception as ex:
@@ -932,10 +934,12 @@ async def cb_handler(e):
                     uid_str = r['user_id']
                     top_data[uid_str] = top_data.get(uid_str, 0) + r['amount']
             
-            sorted_top = sorted(top_data.items(), key=lambda x: x[1], reverse=True)[:5]
+            # CẬP NHẬT: Lọc điều kiện >= 20k
+            eligible_top_data = {k: v for k, v in top_data.items() if v >= 20000}
+            sorted_top = sorted(eligible_top_data.items(), key=lambda x: x[1], reverse=True)[:5]
             
             if not sorted_top:
-                await e.edit(f"{emo('ERROR')} Hôm nay chưa có dữ liệu TOP để thông báo.", buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
+                await e.edit(f"{emo('ERROR')} Hôm nay chưa có đại gia nào đạt mốc 20k để thông báo.", buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
                 return
             
             txt = "🏆 <b>VINH DANH TOP ĐẠI GIA NẠP HÔM NAY</b> 🏆\n━━━━━━━━━━━━━━━━━━\n"
@@ -1035,12 +1039,26 @@ async def cb_handler(e):
         btns = [
             [TButton.inline("SỬA LỜI CHÀO", b"set_intro"), TButton.inline("SỬA KÊNH THÔNG BÁO", b"set_channel")],
             [TButton.inline("SỬA LINK HỖ TRỢ", b"set_support"), TButton.inline("SỬA KÊNH ÉP JOIN", b"set_force_channel")], 
-            [TButton.inline("SỬA QUẢNG CÁO TỰ ĐỘNG (12H)", b"set_auto_ad")],
+            [TButton.inline("SỬA ẢNH QUẢNG CÁO (6H)", b"set_auto_ad_img")],
+            [TButton.inline("SỬA TEXT QUẢNG CÁO (6H)", b"set_auto_ad")],
             [TButton.inline(f"🛠 BẢO TRÌ: {maint_icon}", b"toggle_maintenance")],
             [TButton.inline("🌟 CÀI ĐẶT ICON ĐỘNG", b"admin_emojis")],
             [TButton.inline("🔙 QUAY LẠI", b"admin_menu")]
         ]
         await e.edit(txt, buttons=btns)
+
+    # CẬP NHẬT: TÍNH NĂNG SET LINK ẢNH QUẢNG CÁO
+    elif data == "set_auto_ad_img":
+        await e.answer()
+        await e.delete()
+        async with bot.conversation(uid) as conv:
+            try:
+                await conv.send_message("🖼 Nhập Link Ảnh (có đuôi .jpg, .png...) cho quảng cáo tự động:\n<i>(Nhập 'Chưa cài đặt' nếu chỉ muốn gửi Text)</i>")
+                response = await conv.get_response()
+                await db_set_setting("AUTO_AD_IMAGE", response.text.strip())
+                await conv.send_message(f"{emo('SUCCESS')} Đã cập nhật Ảnh quảng cáo thành công!", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
+            except Exception as ex:
+                await conv.send_message(f"{emo('ERROR')} Đã quá thời gian chờ hoặc có lỗi xảy ra.", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
 
     # THÊM TÍNH NĂNG QUẢN LÝ ICON ĐỘNG CHO ADMIN
     elif data == "admin_emojis":
@@ -1136,10 +1154,10 @@ async def cb_handler(e):
         await e.delete()
         async with bot.conversation(uid) as conv:
             try:
-                await conv.send_message("📢 Nhập nội dung QUẢNG CÁO sẽ tự động gửi mỗi 12 tiếng:\n<i>(Nhập 'Chưa cài đặt' để TẮT tự động quảng cáo)</i>")
+                await conv.send_message("📢 Nhập nội dung QUẢNG CÁO sẽ tự động gửi mỗi 6 tiếng:\n<i>(Nhập 'Chưa cài đặt' để TẮT tự động quảng cáo)</i>")
                 response = await conv.get_response()
                 await db_set_setting("AUTO_AD_MSG", response.text.strip())
-                await conv.send_message(f"{emo('SUCCESS')} Đã cập nhật quảng cáo tự động thành công!", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
+                await conv.send_message(f"{emo('SUCCESS')} Đã cập nhật text quảng cáo tự động thành công!", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
             except Exception as ex:
                 await conv.send_message(f"{emo('ERROR')} Đã quá thời gian chờ hoặc có lỗi xảy ra.")
 
@@ -1683,7 +1701,7 @@ def webhook():
         return jsonify({"status": "error"}), 500
 
 def run_web():
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=8080)
 
 Thread(target=run_web).start()
 
@@ -1704,7 +1722,6 @@ async def main():
     
     asyncio.create_task(auto_clean_history())
     asyncio.create_task(auto_daily_reward())
-    # KÍCH HOẠT VÒNG LẶP SPAM QUẢNG CÁO MỖI 12 TIẾNG
     asyncio.create_task(auto_broadcast_ad())
     
     try:
