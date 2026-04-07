@@ -27,6 +27,9 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
+time.sleep(120)
+
+# --- DÁN VÀO ĐÂY VÀ PHẢI SÁT LỀ TRÁI NHƯ THẾ NÀY ---
 async def worker_grab_loop(client, phone):
     global cached_categories, last_cache_time
     
