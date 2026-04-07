@@ -27,6 +27,9 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
+# Gọi hàm keep_alive để Render không ngủ
+keep_alive()
+
 # --- KHU VỰC CẤU HÌNH (SÁT LỀ TRÁI) ---
 VN_TZ = timezone(timedelta(hours=7))
 
@@ -37,6 +40,7 @@ TOP1_REWARD = 5000
 TOP2_REWARD = 2500
 TOP3_REWARD = 1000
 last_reward_date = ""
+
 # ==================== CẤU HÌNH HỆ THỐNG CƠ BẢN ====================
 SUPABASE_URL = "https://npjjarsmvmqvhdnkvtxc.supabase.co" 
 SUPABASE_KEY = "sb_publishable_gVXyT92FL0XpsiiEcerYFQ_RXE3n0ke"
@@ -51,7 +55,7 @@ ADMIN_ID = 7816353760
 
 logging.basicConfig(level=logging.INFO)
 bot = TelegramClient(StringSession(), API_ID, API_HASH)
-bot.parse_mode = 'html' # BẮT BUỘC SỬ DỤNG HTML ĐỂ HIỂN THỊ EMOJI ĐỘNG
+bot.parse_mode = 'html'
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
@@ -59,6 +63,11 @@ asyncio.set_event_loop(loop)
 # Thêm biến Cache Global để chống rate limit Supabase
 cached_categories = []
 last_cache_time = 0
+
+# --- TIẾP THEO LÀ HÀM WORKER CỦA ÔNG ---
+async def worker_grab_loop(client, phone):
+    global cached_categories, last_cache_time
+    # Code của hàm worker tiếp tục ở đây...
 
 # ==================== CẤU HÌNH ICON ĐỘNG (CUSTOM EMOJIS) ====================
 GLOBAL_EMOJIS = {
