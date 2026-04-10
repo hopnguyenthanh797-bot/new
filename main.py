@@ -23,7 +23,7 @@ def home():
 def run():
     app.run(host='0.0.0.0', port=8080)
 
-def keep_alive_app():
+def keep_alive():
     t = Thread(target=run)
     t.start()
 
@@ -269,7 +269,7 @@ async def auto_daily_reward():
             
         await asyncio.sleep(40) 
 
-# ---> TÍNH NĂNG MỚI: AUTO BROADCAST QUẢNG CÁO MỖI 6 TIẾNG (CÓ KÈM ẢNH) TỪ MAIN14
+# ---> TÍNH NĂNG MỚI: AUTO BROADCAST QUẢNG CÁO TỪ MAIN14 (CÓ KÈM ẢNH)
 async def auto_broadcast_ad():
     while True:
         try:
@@ -294,7 +294,7 @@ async def auto_broadcast_ad():
         except Exception as e:
             logging.error(f"Lỗi auto spam quảng cáo: {e}")
             
-        # Nghỉ 6 tiếng = 21600 giây
+        # Nghỉ 6 tiếng = 21600 giây (hoặc 12 tiếng = 43200 tuỳ ý admin)
         await asyncio.sleep(21600)
 
 # ==================== LOGIC ĐẬP HỘP ĐA DANH MỤC ====================
@@ -1706,22 +1706,6 @@ def webhook():
     except Exception as e:
         logging.error(f"Lỗi webhook: {e}")
         return jsonify({"status": "error"}), 500
-
-# === GIỮ CHUẨN CẤU TRÚC CHẠY WEB NHƯ MAIN13 (PORT 10000) ===
-def run_web():
-    app.run(host="0.0.0.0", port=8080)
-
-Thread(target=run_web).start()
-
-def ping_server():
-    while True:
-        try:
-            urllib.request.urlopen("http://127.0.0.1:8080/", timeout=10)
-        except Exception as e:
-            logging.warning(f"Lỗi ping_server: {e}")
-        time.sleep(120) 
-
-Thread(target=ping_server).start()
 
 async def main():
     await load_emojis()
