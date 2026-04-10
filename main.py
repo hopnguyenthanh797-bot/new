@@ -23,18 +23,18 @@ def home():
 def run():
     app.run(host='0.0.0.0', port=8080)
 
-def keep_alive():
+def keep_alive_app():
     t = Thread(target=run)
     t.start()
-    
-# ---> THÊM: CẤU HÌNH GIỜ VIỆT NAM (GMT+7)
+
+# ---> CẤU HÌNH GIỜ VIỆT NAM (GMT+7)
 VN_TZ = timezone(timedelta(hours=7))
 
-# ---> THÊM: HÀM TẠO MÃ GIAO DỊCH XỊN SÒ (ORDER ID)
+# ---> HÀM TẠO MÃ GIAO DỊCH XỊN SÒ (ORDER ID)
 def generate_order_id(prefix="MD"):
     return f"{prefix}-{''.join(random.choices(string.ascii_uppercase + string.digits, k=6))}"
 
-# ---> THÊM: CẤU HÌNH PHẦN THƯỞNG CHO TOP NẠP NGÀY
+# ---> CẤU HÌNH PHẦN THƯỞNG CHO TOP NẠP NGÀY
 TOP1_REWARD = 5000
 TOP2_REWARD = 2500
 TOP3_REWARD = 1000
@@ -54,6 +54,7 @@ ADMIN_ID = 7816353760
 
 logging.basicConfig(level=logging.INFO)
 bot = TelegramClient(StringSession(), API_ID, API_HASH)
+bot.parse_mode = 'html' # BẮT BUỘC SỬ DỤNG HTML ĐỂ HIỂN THỊ EMOJI ĐỘNG
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
@@ -61,6 +62,30 @@ asyncio.set_event_loop(loop)
 # Thêm biến Cache Global để chống rate limit Supabase
 cached_categories = []
 last_cache_time = 0
+
+# ==================== CẤU HÌNH ICON ĐỘNG (CUSTOM EMOJIS) ====================
+GLOBAL_EMOJIS = {
+    "HEADER": {"id": "5463130105233116568", "char": "🚀", "desc": "Tiêu đề (Tên lửa)"},
+    "BULLET": {"id": "5359330353392265005", "char": "🔹", "desc": "Dấu đầu dòng (Thoi)"},
+    "MONEY": {"id": "5465225016593975746", "char": "💰", "desc": "Tiền/Số dư (Lấp lánh)"},
+    "SUCCESS": {"id": "5465851542851131133", "char": "✅", "desc": "Thành công (Tim)"},
+    "ERROR": {"id": "5465851542851131133", "char": "⚠️", "desc": "Lỗi/Cảnh báo"},
+    "USER": {"id": "5465851542851131133", "char": "👤", "desc": "Người dùng/ID"},
+    "GIFT": {"id": "5465851542851131133", "char": "🎁", "desc": "Quà tặng/Hoa hồng"},
+    "NOTIFY": {"id": "5451944501254397753", "char": "📢", "desc": "Thông báo/Loa"},
+    "GAME": {"id": "5465851542851131133", "char": "🎮", "desc": "Game/Sản phẩm"},
+    "BOX": {"id": "5819073400901537233", "char": "📦", "desc": "Hộp/Kho mã"}
+}
+
+def emo(key):
+    e = GLOBAL_EMOJIS.get(key)
+    if not e: return ""
+    return f'<tg-emoji emoji-id="{e["id"]}">{e["char"]}</tg-emoji>'
+
+async def load_emojis():
+    for key in GLOBAL_EMOJIS.keys():
+        db_val = await db_get_setting(f"EMOJI_{key}", GLOBAL_EMOJIS[key]["id"])
+        GLOBAL_EMOJIS[key]["id"] = db_val
 
 # ==================== HELPER FUNCTIONS & DATABASE ====================
 async def db_get_user(uid):
@@ -214,14 +239,16 @@ async def auto_daily_reward():
                 if getattr(res, 'data', None):
                     top_data = {}
                     for r in res.data:
-                        uid_str = r['user_id']
-                        top_data[uid_str] = top_data.get(uid_str, 0) + r['amount']
+                        # ĐIỀU KIỆN TỐI THIỂU 20K TỪ MAIN14
+                        if r['amount'] >= 20000:
+                            uid_str = r['user_id']
+                            top_data[uid_str] = top_data.get(uid_str, 0) + r['amount']
                     
                     sorted_top = sorted(top_data.items(), key=lambda x: x[1], reverse=True)[:3]
                     
                     if sorted_top:
                         rewards = [TOP1_REWARD, TOP2_REWARD, TOP3_REWARD]
-                        msg_channel = "🎁 **CHỐT SỔ THƯỞNG TOP NẠP NGÀY HÔM NAY** 🎁\n━━━━━━━━━━━━━━━━━━\n"
+                        msg_channel = f"{emo('GIFT')} <b>CHỐT SỔ THƯỞNG TOP NẠP NGÀY HÔM NAY</b> {emo('GIFT')}\n━━━━━━━━━━━━━━━━━━\n"
                         
                         for i, (uid_str, total_amt) in enumerate(sorted_top):
                             reward_amt = rewards[i]
@@ -229,12 +256,12 @@ async def auto_daily_reward():
                             await asyncio.to_thread(lambda: supabase.table("users").update({"balance": user['balance'] + reward_amt}).eq("user_id", int(uid_str)).execute())
                             
                             try:
-                                await bot.send_message(int(uid_str), f"🎉 **CHÚC MỪNG BẠN!**\nBạn đã đạt **Top {i+1} Nạp Ngày**.\nHệ thống đã cộng tự động **{reward_amt:,}đ** tiền thưởng vào tài khoản của bạn!")
+                                await bot.send_message(int(uid_str), f"{emo('GIFT')} <b>CHÚC MỪNG BẠN!</b>\nBạn đã đạt <b>Top {i+1} Nạp Ngày</b>.\nHệ thống đã cộng tự động <b>{reward_amt:,}đ</b> tiền thưởng vào tài khoản của bạn!")
                             except: pass
                             
-                            msg_channel += f"Top {i+1}: `{uid_str}` - Thưởng: **{reward_amt:,}đ**\n"
+                            msg_channel += f"Top {i+1}: <code>{uid_str}</code> - Thưởng: <b>{reward_amt:,}đ</b>\n"
                             
-                        msg_channel += "━━━━━━━━━━━━━━━━━━\n✅ *Bảng xếp hạng nạp đã tự động làm mới cho ngày hôm sau!*"
+                        msg_channel += f"━━━━━━━━━━━━━━━━━━\n{emo('SUCCESS')} <i>Bảng xếp hạng nạp đã tự động làm mới cho ngày hôm sau!</i>"
                         await send_channel_notify(msg_channel)
                         
         except Exception as e:
@@ -242,25 +269,33 @@ async def auto_daily_reward():
             
         await asyncio.sleep(40) 
 
-# ---> TÍNH NĂNG MỚI: AUTO BROADCAST QUẢNG CÁO MỖI 12 TIẾNG
+# ---> TÍNH NĂNG MỚI: AUTO BROADCAST QUẢNG CÁO MỖI 6 TIẾNG (CÓ KÈM ẢNH) TỪ MAIN14
 async def auto_broadcast_ad():
     while True:
         try:
             ad_msg = await db_get_setting("AUTO_AD_MSG", "Chưa cài đặt")
+            ad_img = await db_get_setting("AUTO_AD_IMAGE", "Chưa cài đặt")
+            
             if ad_msg and ad_msg != "Chưa cài đặt" and ad_msg.strip() != "":
                 users_res = await asyncio.to_thread(lambda: supabase.table("users").select("user_id").execute())
                 if getattr(users_res, 'data', None):
                     for u in users_res.data:
                         try:
-                            await bot.send_message(int(u['user_id']), f"📢 **THÔNG TIN TỪ HỆ THỐNG**\n\n{ad_msg}")
+                            msg_text = f"{emo('NOTIFY')} <b>THÔNG TIN TỪ HỆ THỐNG</b>\n\n{ad_msg}"
+                            
+                            # Nếu có link ảnh hợp lệ thì gửi ảnh + caption, ngược lại gửi text
+                            if ad_img and ad_img.startswith("http"):
+                                await bot.send_file(int(u['user_id']), file=ad_img, caption=msg_text, parse_mode='html')
+                            else:
+                                await bot.send_message(int(u['user_id']), msg_text)
                             await asyncio.sleep(0.1)
                         except:
                             pass
         except Exception as e:
             logging.error(f"Lỗi auto spam quảng cáo: {e}")
             
-        # Nghỉ 12 tiếng = 43200 giây
-        await asyncio.sleep(43200)
+        # Nghỉ 6 tiếng = 21600 giây
+        await asyncio.sleep(21600)
 
 # ==================== LOGIC ĐẬP HỘP ĐA DANH MỤC ====================
 async def worker_grab_loop(client, phone):
@@ -272,7 +307,7 @@ async def worker_grab_loop(client, phone):
         if not await client.is_user_authorized():
             logging.error(f"Clone {phone} đã chết session (bị đăng xuất).")
             await asyncio.to_thread(lambda: supabase.table("my_clones").update({"status": "dead"}).eq("phone", phone).execute())
-            await bot.send_message(ADMIN_ID, f"⚠️ **CẢNH BÁO CLONE CHẾT**\nClone `{phone}` đã bị văng session. Vui lòng nạp lại!")
+            await bot.send_message(ADMIN_ID, f"{emo('ERROR')} <b>CẢNH BÁO CLONE CHẾT</b>\nClone <code>{phone}</code> đã bị văng session. Vui lòng nạp lại!")
             return
 
         try:
@@ -352,14 +387,14 @@ async def worker_grab_loop(client, phone):
                                         
                                         await bot.send_message(
                                             ADMIN_ID, 
-                                            f"🎊 **NHẬN CODE MỚI!** \n🎮 Danh mục: **{matched_cat['name']}** \n📱 Clone: `{phone}`\n🔑 Code: `{code_found}`"
+                                            f"{emo('GIFT')} <b>NHẬN CODE MỚI!</b> \n{emo('GAME')} Danh mục: <b>{matched_cat['name']}</b> \n📱 Clone: <code>{phone}</code>\n🔑 Code: <code>{code_found}</code>"
                                         )
                                         
                                         try:
                                             count_res = await asyncio.to_thread(lambda: supabase.table("codes").select("id", count='exact').eq("category_id", matched_cat['id']).eq("status", "available").execute())
                                             stock = count_res.count if count_res.count is not None else 0
                                             if stock in [20, 40, 60]:
-                                                await send_channel_notify(f"🎉 **TIN VUI TỪ KHO GAME**\nKho game **{matched_cat['name']}** vừa đạt mốc **{stock} code**!\nAnh em nhanh tay vào húp nhé!")
+                                                await send_channel_notify(f"{emo('GIFT')} <b>TIN VUI TỪ KHO GAME</b>\nKho game <b>{matched_cat['name']}</b> vừa đạt mốc <b>{stock} code</b>!\nAnh em nhanh tay vào húp nhé!")
                                         except Exception as e_stock:
                                             logging.error(f"Lỗi thông báo mốc code: {e_stock}")
                                         
@@ -390,12 +425,12 @@ async def main_menu_text(user):
     vip_str = f"| 🎖 VIP: {lv}\n📈 Tiến độ VIP: {progress_text}" if total_dep >= 0 else ""
     
     return (
-        f"🤖 **HỆ THỐNG CỬA HÀNG CODE VIP** 🤖\n"
+        f"{emo('HEADER')} <b>HỆ THỐNG CỬA HÀNG CODE VIP</b> {emo('HEADER')}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"👤 ID Của Bạn: `{user['user_id']}` {vip_str}\n"
-        f"💰 Số dư: **{user['balance']:,} VNĐ** \n"
+        f"{emo('USER')} ID Của Bạn: <code>{user['user_id']}</code> {vip_str}\n"
+        f"{emo('MONEY')} Số dư: <b>{user['balance']:,} VNĐ</b> \n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"📝 {bot_intro}"
+        f"{emo('BULLET')} <i>{bot_intro}</i>"
     )
 
 async def get_main_btns(uid):
@@ -427,7 +462,7 @@ async def start(e):
     # KIỂM TRA BẢO TRÌ
     status = await db_get_setting("MAINTENANCE_MODE", "OFF")
     if status == "ON" and uid != ADMIN_ID:
-        await e.respond("⚠️ **HỆ THỐNG ĐANG BẢO TRÌ**\nBot đang được nâng cấp, vui lòng quay lại sau nhé!")
+        await e.respond(f"{emo('ERROR')} <b>HỆ THỐNG ĐANG BẢO TRÌ</b>\nBot đang được nâng cấp, vui lòng quay lại sau nhé!")
         return
         
     payload = e.pattern_match.group(1)
@@ -443,7 +478,7 @@ async def start(e):
         except Exception:
             btns = [[TButton.url("📢 THAM GIA KÊNH ĐỂ TIẾP TỤC", f"https://t.me/{channel.replace('@', '')}")],
                     [TButton.inline("✅ ĐÃ THAM GIA", b"check_join")]]
-            await e.respond("⚠️ **YÊU CẦU BẮT BUỘC**\n\nBạn cần tham gia kênh của chúng tôi để sử dụng Bot. Vui lòng tham gia và bấm nút **ĐÃ THAM GIA** bên dưới.", buttons=btns)
+            await e.respond(f"{emo('ERROR')} <b>YÊU CẦU BẮT BUỘC</b>\n\nBạn cần tham gia kênh của chúng tôi để sử dụng Bot. Vui lòng tham gia và bấm nút <b>ĐÃ THAM GIA</b> bên dưới.", buttons=btns)
             return
 
     user = await db_get_user(uid)
@@ -454,7 +489,7 @@ async def start(e):
             try:
                 await asyncio.to_thread(lambda: supabase.table("users").update({"referrer_id": referrer_id}).eq("user_id", uid).execute())
                 user['referrer_id'] = referrer_id
-                await bot.send_message(referrer_id, f"🎉 **CÓ NGƯỜI MỚI THAM GIA!**\nThành viên ID `{uid}` vừa đăng ký qua link giới thiệu của bạn. Bạn sẽ nhận **10% hoa hồng** mỗi khi họ nạp tiền!")
+                await bot.send_message(referrer_id, f"{emo('GIFT')} <b>CÓ NGƯỜI MỚI THAM GIA!</b>\nThành viên ID <code>{uid}</code> vừa đăng ký qua link giới thiệu của bạn. Bạn sẽ nhận <b>10% hoa hồng</b> mỗi khi họ nạp tiền!")
             except Exception as ex:
                 logging.error(f"Lỗi lưu referrer_id: {ex}")
 
@@ -508,11 +543,11 @@ async def cb_handler(e):
             await e.answer("❌ Bạn không có quyền truy cập!", alert=True)
             return
             
-        txt = (f"💼 **TRUNG TÂM ĐỐI TÁC (CỘNG TÁC VIÊN)** 💼\n"
+        txt = (f"💼 <b>TRUNG TÂM ĐỐI TÁC (CỘNG TÁC VIÊN)</b> 💼\n"
                f"━━━━━━━━━━━━━━━━━━\n"
-               f"👤 **CTV:** `{uid}`\n"
-               f"💰 **Số dư ví CTV (Hoa hồng):** **{user.get('ctv_balance', 0):,} VNĐ**\n"
-               f"*(Hệ thống sẽ thu phí admin 10% doanh thu mỗi khi có đơn thành công)*\n"
+               f"{emo('USER')} <b>CTV:</b> <code>{uid}</code>\n"
+               f"{emo('MONEY')} <b>Số dư ví CTV (Hoa hồng):</b> <b>{user.get('ctv_balance', 0):,} VNĐ</b>\n"
+               f"<i>(Hệ thống sẽ thu phí admin 10% doanh thu mỗi khi có đơn thành công)</i>\n"
                f"━━━━━━━━━━━━━━━━━━\n"
                f"Vui lòng chọn chức năng quản lý bên dưới:")
                
@@ -533,16 +568,16 @@ async def cb_handler(e):
         
         res = await asyncio.to_thread(lambda: supabase.table("ctv_history").select("*").eq("ctv_id", uid).order("created_at", desc=True).limit(15).execute())
         if not getattr(res, 'data', None):
-            await e.edit("❌ Bạn chưa có đơn hàng nào được bán ra.", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
+            await e.edit(f"{emo('ERROR')} Bạn chưa có đơn hàng nào được bán ra.", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
             return
             
-        txt = f"📜 **LỊCH SỬ BÁN HÀNG CỦA BẠN**\n━━━━━━━━━━━━━━━━━━\n"
+        txt = f"📜 <b>LỊCH SỬ BÁN HÀNG CỦA BẠN</b>\n━━━━━━━━━━━━━━━━━━\n"
         for h in res.data:
             dt = datetime.fromisoformat(h['created_at'].replace('Z', '+00:00'))
             time_str = dt.astimezone(VN_TZ).strftime('%H:%M %d/%m')
-            txt += f"🔹 `{time_str}` | Đã bán {h['qty']} code {h['category_name']}\n"
-            txt += f"   👤 ID Khách mua: `{h['buyer_id']}`\n"
-            txt += f"   💰 Hoa hồng nhận: **+{h['revenue']:,}đ** (Phí: -{h['admin_fee']:,}đ)\n"
+            txt += f"{emo('BULLET')} <code>{time_str}</code> | Đã bán {h['qty']} code {h['category_name']}\n"
+            txt += f"   {emo('USER')} ID Khách mua: <code>{h['buyer_id']}</code>\n"
+            txt += f"   {emo('MONEY')} Hoa hồng nhận: <b>+{h['revenue']:,}đ</b> (Phí: -{h['admin_fee']:,}đ)\n"
             
         await e.edit(txt, buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
 
@@ -553,22 +588,22 @@ async def cb_handler(e):
         await e.delete()
         async with bot.conversation(uid) as conv:
             try:
-                await conv.send_message("🌟 **[CTV] TẠO SẢN PHẨM MỚI**\n👉 Nhập Tên Game/Sản phẩm (VD: Ok vip random 8-88k):")
+                await conv.send_message(f"🌟 <b>[CTV] TẠO SẢN PHẨM MỚI</b>\n👉 Nhập Tên Game/Sản phẩm (VD: Ok vip random 8-88k):")
                 name = (await conv.get_response()).text.strip()
                 
-                await conv.send_message("💰 Nhập Giá bán ra cho khách hàng (Ghi số, VD: 15000):")
+                await conv.send_message(f"{emo('MONEY')} Nhập Giá bán ra cho khách hàng (Ghi số, VD: 15000):")
                 price = int((await conv.get_response()).text.strip())
                 
                 await conv.send_message("📝 Nhập Mô tả sản phẩm để khách đọc:")
                 desc = (await conv.get_response()).text.strip()
                 
                 await asyncio.to_thread(lambda: supabase.table("categories").insert({"name": name, "price": price, "description": desc, "owner_id": uid, "target_bot": ""}).execute())
-                await conv.send_message(f"✅ Đã tạo sản phẩm thành công: **{name}**\nBây giờ bạn có thể UP CODE vào mục này!", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
+                await conv.send_message(f"{emo('SUCCESS')} Đã tạo sản phẩm thành công: <b>{name}</b>\nBây giờ bạn có thể UP CODE vào mục này!", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
             except ValueError:
-                await conv.send_message("❌ Lỗi: Giá bán phải là số!", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
+                await conv.send_message(f"{emo('ERROR')} Lỗi: Giá bán phải là số!", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
             except Exception as ex:
                 logging.error(f"Lỗi CTV tạo danh mục: {ex}")
-                await conv.send_message("❌ Có lỗi xảy ra!", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
+                await conv.send_message(f"{emo('ERROR')} Có lỗi xảy ra!", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
 
     elif data == "ctv_add_codes":
         await e.answer()
@@ -578,12 +613,12 @@ async def cb_handler(e):
         cats_res = await asyncio.to_thread(lambda: supabase.table("categories").select("*").eq("owner_id", uid).execute())
         cats = cats_res.data
         if not cats:
-            await e.edit("❌ Bạn chưa tạo sản phẩm nào để up code. Vui lòng tạo Sản Phẩm trước!", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
+            await e.edit(f"{emo('ERROR')} Bạn chưa tạo sản phẩm nào để up code. Vui lòng tạo Sản Phẩm trước!", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
             return
             
-        txt = "📦 **SẢN PHẨM CỦA BẠN ĐANG CÓ:**\n"
+        txt = f"{emo('BOX')} <b>SẢN PHẨM CỦA BẠN ĐANG CÓ:</b>\n"
         for c in cats:
-            txt += f"🔸 ID: `{c['id']}` - Tên: **{c['name']}**\n"
+            txt += f"{emo('BULLET')} ID: <code>{c['id']}</code> - Tên: <b>{c['name']}</b>\n"
             
         await e.delete()
         async with bot.conversation(uid) as conv:
@@ -593,7 +628,7 @@ async def cb_handler(e):
                 
                 valid_cat = next((c for c in cats if c['id'] == cat_id), None)
                 if not valid_cat:
-                    await conv.send_message("❌ Bạn không sở hữu ID sản phẩm này!", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
+                    await conv.send_message(f"{emo('ERROR')} Bạn không sở hữu ID sản phẩm này!", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
                     return
                 
                 await conv.send_message("👉 Gửi danh sách code (Mỗi code nằm trên 1 dòng riêng biệt):")
@@ -607,11 +642,11 @@ async def cb_handler(e):
                 
                 if insert_data:
                     await asyncio.to_thread(lambda: supabase.table("codes").insert(insert_data).execute())
-                    await conv.send_message(f"✅ Đã tải lên thành công {len(insert_data)} code cho sản phẩm **{valid_cat['name']}**!", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
+                    await conv.send_message(f"{emo('SUCCESS')} Đã tải lên thành công {len(insert_data)} code cho sản phẩm <b>{valid_cat['name']}</b>!", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
                 else:
-                    await conv.send_message("❌ Bạn chưa nhập code nào.", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
+                    await conv.send_message(f"{emo('ERROR')} Bạn chưa nhập code nào.", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
             except ValueError:
-                await conv.send_message("❌ Lỗi: ID phải là số!", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
+                await conv.send_message(f"{emo('ERROR')} Lỗi: ID phải là số!", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
 
     elif data == "ctv_withdraw":
         await e.answer("Đang tải dữ liệu...", cache_time=0)
@@ -621,17 +656,17 @@ async def cb_handler(e):
         current_ctv_balance = user.get('ctv_balance', 0)
         
         if current_ctv_balance < 50000:
-            await bot.send_message(uid, "❌ Số dư ví CTV tối thiểu để rút là 50,000 VNĐ!")
+            await bot.send_message(uid, f"{emo('ERROR')} Số dư ví CTV tối thiểu để rút là 50,000 VNĐ!")
             return
             
         await e.delete()
         async with bot.conversation(uid) as conv:
             try:
-                await conv.send_message(f"💳 **RÚT TIỀN HOA HỒNG CTV**\nSố dư khả dụng: {current_ctv_balance:,}đ\n👉 Nhập SỐ TIỀN muốn rút:")
+                await conv.send_message(f"💳 <b>RÚT TIỀN HOA HỒNG CTV</b>\nSố dư khả dụng: {current_ctv_balance:,}đ\n👉 Nhập SỐ TIỀN muốn rút:")
                 amount = int((await conv.get_response()).text.strip())
                 
                 if amount < 50000 or amount > current_ctv_balance:
-                    await conv.send_message("❌ Số tiền không hợp lệ hoặc lớn hơn số dư ví CTV!", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
+                    await conv.send_message(f"{emo('ERROR')} Số tiền không hợp lệ hoặc lớn hơn số dư ví CTV!", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
                     return
                     
                 await conv.send_message("🏦 Nhập thông tin Nhận Tiền (Tên Ngân Hàng - STK - Tên Chủ Tài Khoản):")
@@ -648,23 +683,23 @@ async def cb_handler(e):
                     
                 req_id = insert_res.data[0]['id']
                 
-                admin_txt = (f"🔔 **CÓ YÊU CẦU RÚT TIỀN TỪ CTV** 🔔\n"
-                             f"👤 CTV ID: `{uid}`\n"
-                             f"💰 Số tiền rút: **{amount:,}đ**\n"
-                             f"🏦 Bank: `{bank_info}`\n"
-                             f"⚠️ Hãy chuyển khoản cho họ rồi ấn DUYỆT nhé!")
+                admin_txt = (f"{emo('NOTIFY')} <b>CÓ YÊU CẦU RÚT TIỀN TỪ CTV</b> {emo('NOTIFY')}\n"
+                             f"{emo('USER')} CTV ID: <code>{uid}</code>\n"
+                             f"{emo('MONEY')} Số tiền rút: <b>{amount:,}đ</b>\n"
+                             f"🏦 Bank: <code>{bank_info}</code>\n"
+                             f"{emo('ERROR')} Hãy chuyển khoản cho họ rồi ấn DUYỆT nhé!")
                 admin_btns = [
                     [TButton.inline("✅ ĐÃ CHUYỂN & DUYỆT ĐƠN", f"approve_wd_{req_id}_{uid}_{amount}")],
                     [TButton.inline("❌ TỪ CHỐI (HOÀN TIỀN LẠI)", f"reject_wd_{req_id}_{uid}_{amount}")]
                 ]
                 await bot.send_message(ADMIN_ID, admin_txt, buttons=admin_btns)
                 
-                await conv.send_message("✅ Đã gửi yêu cầu rút tiền thành công! Admin sẽ xử lý sớm nhất.", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
+                await conv.send_message(f"{emo('SUCCESS')} Đã gửi yêu cầu rút tiền thành công! Admin sẽ xử lý sớm nhất.", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
             except ValueError:
-                await conv.send_message("❌ Lỗi: Số tiền phải là số nguyên!")
+                await conv.send_message(f"{emo('ERROR')} Lỗi: Số tiền phải là số nguyên!")
             except Exception as ex:
                 logging.error(f"Lỗi rút tiền CTV: {ex}")
-                await conv.send_message("❌ Quá thời gian chờ hoặc có lỗi kết nối CSDL.", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
+                await conv.send_message(f"{emo('ERROR')} Quá thời gian chờ hoặc có lỗi kết nối CSDL.", buttons=[[TButton.inline("🔙 VỀ MENU CTV", b"ctv_dashboard")]])
 
     # ==================== ADMIN: XỬ LÝ CTV ====================
     elif data == "admin_ctv":
@@ -676,7 +711,7 @@ async def cb_handler(e):
             [TButton.inline("💰 CỘNG / TRỪ VÍ CTV", b"admin_money_ctv")],
             [TButton.inline("🔙 ADMIN", b"admin_menu")]
         ]
-        await e.edit("🤝 **QUẢN LÝ ĐỐI TÁC (CTV)**\nVui lòng chọn chức năng:", buttons=btns)
+        await e.edit("🤝 <b>QUẢN LÝ ĐỐI TÁC (CTV)</b>\nVui lòng chọn chức năng:", buttons=btns)
 
     elif data == "admin_ctv_role":
         await e.answer()
@@ -684,20 +719,20 @@ async def cb_handler(e):
         await e.delete()
         async with bot.conversation(uid) as conv:
             try:
-                await conv.send_message("🤝 **CẤP/HỦY QUYỀN CTV**\n👉 Nhập ID của người bạn muốn CẤP (Hoặc HỦY) quyền:")
+                await conv.send_message("🤝 <b>CẤP/HỦY QUYỀN CTV</b>\n👉 Nhập ID của người bạn muốn CẤP (Hoặc HỦY) quyền:")
                 target_id = int((await conv.get_response()).text.strip())
                 target_user = await db_get_user(target_id)
                 
                 if target_user.get('role') == 'ctv':
                     await asyncio.to_thread(lambda: supabase.table("users").update({"role": "user"}).eq("user_id", target_id).execute())
-                    await bot.send_message(target_id, "❌ Quyền Cộng Tác Viên (CTV) của bạn đã bị Admin thu hồi.")
-                    await conv.send_message(f"✅ Đã THU HỒI quyền CTV của tài khoản `{target_id}`", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
+                    await bot.send_message(target_id, f"{emo('ERROR')} Quyền Cộng Tác Viên (CTV) của bạn đã bị Admin thu hồi.")
+                    await conv.send_message(f"{emo('SUCCESS')} Đã THU HỒI quyền CTV của tài khoản <code>{target_id}</code>", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
                 else:
                     await asyncio.to_thread(lambda: supabase.table("users").update({"role": "ctv"}).eq("user_id", target_id).execute())
-                    await bot.send_message(target_id, "🎉 **CHÚC MỪNG!**\nBạn đã được Admin cấp quyền **ĐỐI TÁC (CỘNG TÁC VIÊN)**.\nHãy vào Menu chính để truy cập Kênh Đối Tác nhé!")
-                    await conv.send_message(f"✅ Đã CẤP quyền CTV thành công cho tài khoản `{target_id}`", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
+                    await bot.send_message(target_id, f"{emo('GIFT')} <b>CHÚC MỪNG!</b>\nBạn đã được Admin cấp quyền <b>ĐỐI TÁC (CỘNG TÁC VIÊN)</b>.\nHãy vào Menu chính để truy cập Kênh Đối Tác nhé!")
+                    await conv.send_message(f"{emo('SUCCESS')} Đã CẤP quyền CTV thành công cho tài khoản <code>{target_id}</code>", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
             except ValueError:
-                await conv.send_message("❌ ID phải là số!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
+                await conv.send_message(f"{emo('ERROR')} ID phải là số!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
 
     # TÍNH NĂNG MỚI: ADMIN CỘNG/TRỪ TIỀN VÍ CTV
     elif data == "admin_money_ctv":
@@ -706,27 +741,27 @@ async def cb_handler(e):
         await e.delete()
         async with bot.conversation(uid) as conv:
             try:
-                await conv.send_message("👤 Nhập ID của CTV cần cộng/trừ tiền:")
+                await conv.send_message(f"{emo('USER')} Nhập ID của CTV cần cộng/trừ tiền:")
                 tid = int((await conv.get_response()).text.strip())
                 
                 target_user = await db_get_user(tid)
                 if target_user.get('role') != 'ctv':
-                    await conv.send_message("❌ Lỗi: Người dùng này không phải là Cộng Tác Viên!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
+                    await conv.send_message(f"{emo('ERROR')} Lỗi: Người dùng này không phải là Cộng Tác Viên!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
                     return
                 
-                await conv.send_message("💰 Nhập số tiền VÍ CTV (Cộng thêm thì ghi 50000, Trừ đi thì ghi -50000):")
+                await conv.send_message(f"{emo('MONEY')} Nhập số tiền VÍ CTV (Cộng thêm thì ghi 50000, Trừ đi thì ghi -50000):")
                 amt = int((await conv.get_response()).text.strip())
                 
                 new_balance = int(target_user.get('ctv_balance', 0)) + amt
                 if new_balance < 0: new_balance = 0
                 
                 await asyncio.to_thread(lambda: supabase.table("users").update({"ctv_balance": new_balance}).eq("user_id", tid).execute())
-                await conv.send_message(f"✅ Thành công! Số dư VÍ CTV mới của `{tid}` là: **{new_balance:,}đ**", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
+                await conv.send_message(f"{emo('SUCCESS')} Thành công! Số dư VÍ CTV mới của <code>{tid}</code> là: <b>{new_balance:,}đ</b>", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
             except ValueError:
-                await conv.send_message("❌ ID và Số tiền phải là chữ số!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
+                await conv.send_message(f"{emo('ERROR')} ID và Số tiền phải là chữ số!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
             except Exception as ex:
                 logging.error(f"Lỗi admin_money_ctv: {ex}")
-                await conv.send_message("❌ Lỗi cơ sở dữ liệu!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
+                await conv.send_message(f"{emo('ERROR')} Lỗi cơ sở dữ liệu!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
 
     # TÍNH NĂNG MỚI: ADMIN XEM LỊCH SỬ BÁN HÀNG CỦA CTV
     elif data == "admin_ctv_history":
@@ -740,23 +775,23 @@ async def cb_handler(e):
                 
                 res = await asyncio.to_thread(lambda: supabase.table("ctv_history").select("*").eq("ctv_id", ctv_id).order("created_at", desc=True).limit(10).execute())
                 if not getattr(res, 'data', None):
-                    await conv.send_message(f"❌ CTV `{ctv_id}` chưa bán được đơn hàng nào.", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
+                    await conv.send_message(f"{emo('ERROR')} CTV <code>{ctv_id}</code> chưa bán được đơn hàng nào.", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
                     return
                 
-                txt = f"📜 **LỊCH SỬ BÁN CỦA CTV: `{ctv_id}`**\n━━━━━━━━━━━━━━━━━━\n"
+                txt = f"📜 <b>LỊCH SỬ BÁN CỦA CTV: <code>{ctv_id}</code></b>\n━━━━━━━━━━━━━━━━━━\n"
                 for h in res.data:
                     dt = datetime.fromisoformat(h['created_at'].replace('Z', '+00:00'))
                     time_str = dt.astimezone(VN_TZ).strftime('%H:%M %d/%m')
-                    txt += f"🔹 `{time_str}` | Bán {h['qty']} {h['category_name']}\n"
-                    txt += f"   👤 Khách mua: `{h['buyer_id']}`\n"
-                    txt += f"   💰 Hoa hồng nhận: **+{h['revenue']:,}đ** (Phí: -{h['admin_fee']:,}đ)\n"
+                    txt += f"{emo('BULLET')} <code>{time_str}</code> | Bán {h['qty']} {h['category_name']}\n"
+                    txt += f"   {emo('USER')} Khách mua: <code>{h['buyer_id']}</code>\n"
+                    txt += f"   {emo('MONEY')} Hoa hồng nhận: <b>+{h['revenue']:,}đ</b> (Phí: -{h['admin_fee']:,}đ)\n"
                 
                 await conv.send_message(txt, buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
             except ValueError:
-                await conv.send_message("❌ ID phải là số!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
+                await conv.send_message(f"{emo('ERROR')} ID phải là số!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
             except Exception as ex:
                 logging.error(f"Lỗi check lịch sử CTV: {ex}")
-                await conv.send_message("❌ Lỗi truy xuất cơ sở dữ liệu!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
+                await conv.send_message(f"{emo('ERROR')} Lỗi truy xuất cơ sở dữ liệu!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
 
     elif data.startswith("approve_wd_"):
         await e.answer()
@@ -765,9 +800,9 @@ async def cb_handler(e):
         req_id, target_id, amount = int(parts[2]), int(parts[3]), int(parts[4])
         
         await asyncio.to_thread(lambda: supabase.table("withdraw_requests").update({"status": "approved"}).eq("id", req_id).execute())
-        await e.edit(f"✅ Đã đánh dấu duyệt thành công lệnh rút **{amount:,}đ** của CTV `{target_id}`.")
+        await e.edit(f"{emo('SUCCESS')} Đã đánh dấu duyệt thành công lệnh rút <b>{amount:,}đ</b> của CTV <code>{target_id}</code>.")
         try:
-            await bot.send_message(target_id, f"✅ **THÔNG BÁO RÚT TIỀN**\nYêu cầu rút **{amount:,}đ** của bạn đã được Admin duyệt và chuyển khoản thành công!")
+            await bot.send_message(target_id, f"{emo('SUCCESS')} <b>THÔNG BÁO RÚT TIỀN</b>\nYêu cầu rút <b>{amount:,}đ</b> của bạn đã được Admin duyệt và chuyển khoản thành công!")
         except: pass
 
     elif data.startswith("reject_wd_"):
@@ -781,20 +816,20 @@ async def cb_handler(e):
         await asyncio.to_thread(lambda: supabase.table("users").update({"ctv_balance": new_ctv_balance}).eq("user_id", target_id).execute())
         await asyncio.to_thread(lambda: supabase.table("withdraw_requests").update({"status": "rejected"}).eq("id", req_id).execute())
         
-        await e.edit(f"❌ Đã TỪ CHỐI lệnh rút {amount:,}đ của CTV `{target_id}`. Tiền đã được hoàn lại vào ví họ.")
+        await e.edit(f"{emo('ERROR')} Đã TỪ CHỐI lệnh rút {amount:,}đ của CTV <code>{target_id}</code>. Tiền đã được hoàn lại vào ví họ.")
         try:
-            await bot.send_message(target_id, f"❌ **THÔNG BÁO RÚT TIỀN**\nYêu cầu rút **{amount:,}đ** của bạn bị từ chối. Số tiền đã được hoàn lại vào ví.")
+            await bot.send_message(target_id, f"{emo('ERROR')} <b>THÔNG BÁO RÚT TIỀN</b>\nYêu cầu rút <b>{amount:,}đ</b> của bạn bị từ chối. Số tiền đã được hoàn lại vào ví.")
         except: pass
 
     elif data == "referral_menu":
         await e.answer()
         bot_info = await bot.get_me()
         ref_link = f"https://t.me/{bot_info.username}?start={uid}"
-        txt = (f"🤝 **CHƯƠNG TRÌNH HOA HỒNG GIỚI THIỆU** 🤝\n"
+        txt = (f"🤝 <b>CHƯƠNG TRÌNH HOA HỒNG GIỚI THIỆU</b> 🤝\n"
                f"━━━━━━━━━━━━━━━━━━\n"
-               f"🎁 **Nhận ngay 10%** giá trị mỗi lần nạp của người mà bạn giới thiệu (Không giới hạn số lần nạp).\n\n"
-               f"🔗 **Link giới thiệu của bạn:**\n`{ref_link}`\n\n"
-               f"*(Hãy copy link trên và gửi cho bạn bè để bắt đầu kiếm tiền thụ động nhé!)*")
+               f"{emo('GIFT')} <b>Nhận ngay 10%</b> giá trị mỗi lần nạp của người mà bạn giới thiệu (Không giới hạn số lần nạp).\n\n"
+               f"🔗 <b>Link giới thiệu của bạn:</b>\n<code>{ref_link}</code>\n\n"
+               f"<i>(Hãy copy link trên và gửi cho bạn bè để bắt đầu kiếm tiền thụ động nhé!)</i>")
         await e.edit(txt, buttons=[[TButton.inline("🔙 QUAY LẠI TRANG CHỦ", b"back")]])
 
     elif data == "global_stats":
@@ -806,18 +841,19 @@ async def cb_handler(e):
             total_dep = int(await db_get_setting("TOTAL_DEPOSIT", "0"))
             total_sold = int(await db_get_setting("TOTAL_CODES_SOLD", "0"))
             
-            txt = (f"📊 **BẢNG THỐNG KÊ HỆ THỐNG** 📊\n"
+            txt = (f"📊 <b>BẢNG THỐNG KÊ HỆ THỐNG</b> 📊\n"
                    f"━━━━━━━━━━━━━━━━━━\n"
-                   f"👥 **Tổng số thành viên:** `{total_users:,}` người\n"
-                   f"💵 **Tổng tiền đã nạp:** `{total_dep:,} VNĐ`\n"
-                   f"📦 **Tổng lượt mua code:** `{total_sold:,}` mã\n"
+                   f"👥 <b>Tổng số thành viên:</b> <code>{total_users:,}</code> người\n"
+                   f"{emo('MONEY')} <b>Tổng tiền đã nạp:</b> <code>{total_dep:,} VNĐ</code>\n"
+                   f"{emo('BOX')} <b>Tổng lượt mua code:</b> <code>{total_sold:,}</code> mã\n"
                    f"━━━━━━━━━━━━━━━━━━\n"
-                   f"✅ *Hệ thống uy tín, tự động và minh bạch 24/7!*")
+                   f"{emo('SUCCESS')} <i>Hệ thống uy tín, tự động và minh bạch 24/7!</i>")
             await e.edit(txt, buttons=[[TButton.inline("🔙 QUAY LẠI TRANG CHỦ", b"back")]])
         except Exception as ex:
             logging.error(f"Lỗi thống kê: {ex}")
-            await e.edit("❌ Đang tải dữ liệu thống kê, vui lòng thử lại sau.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
+            await e.edit(f"{emo('ERROR')} Đang tải dữ liệu thống kê, vui lòng thử lại sau.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
 
+    # CẬP NHẬT: THÊM ĐIỀU KIỆN TỐI THIỂU 20K VÀO BẢNG XẾP HẠNG
     elif data == "top_users":
         await e.answer()
         try:
@@ -827,26 +863,28 @@ async def cb_handler(e):
             top_data = {}
             if getattr(res, 'data', None):
                 for r in res.data:
-                    uid_str = r['user_id']
-                    top_data[uid_str] = top_data.get(uid_str, 0) + r['amount']
+                    # ĐIỀU KIỆN TỐI THIỂU 20K TỪ MAIN14
+                    if r['amount'] >= 20000:
+                        uid_str = r['user_id']
+                        top_data[uid_str] = top_data.get(uid_str, 0) + r['amount']
             
             sorted_top = sorted(top_data.items(), key=lambda x: x[1], reverse=True)[:10]
             
             if not sorted_top:
-                await e.edit("🏆 Hôm nay chưa có đại gia nào nạp tiền.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
+                await e.edit("🏆 Hôm nay chưa có đại gia nào đạt mốc nạp 20k.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
                 return
             
-            txt = "🏆 **BẢNG XẾP HẠNG TOP NẠP HÔM NAY** 🏆\n━━━━━━━━━━━━━━━━━━\n"
+            txt = "🏆 <b>BẢNG XẾP HẠNG TOP NẠP HÔM NAY</b> 🏆\n━━━━━━━━━━━━━━━━━━\n"
             medals = ["🥇", "🥈", "🥉", "🏅", "🏅", "🏅", "🏅", "🏅", "🏅", "🏅"]
             for i, (user_id, total_amt) in enumerate(sorted_top):
-                txt += f"{medals[i]} ID: `{user_id}` - Tổng nạp: **{total_amt:,}đ**\n"
+                txt += f"{medals[i]} ID: <code>{user_id}</code> - Tổng nạp: <b>{total_amt:,}đ</b>\n"
             txt += "━━━━━━━━━━━━━━━━━━\n🕒 Cập nhật lúc: " + datetime.now(VN_TZ).strftime('%H:%M %d/%m/%Y')
-            txt += "\n🎁 3 Top đầu sẽ được hệ thống cộng thưởng tự động vào cuối ngày!*"
+            txt += f"\n{emo('GIFT')} <i>3 Top đầu (Tối thiểu 20k) sẽ được cộng thưởng tự động vào cuối ngày!</i>"
             
             await e.edit(txt, buttons=[[TButton.inline("🔙 QUAY LẠI TRANG CHỦ", b"back")]])
         except Exception as ex:
             logging.error(f"Lỗi xem TOP: {ex}")
-            await e.edit("❌ Lỗi tải bảng xếp hạng.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
+            await e.edit(f"{emo('ERROR')} Lỗi tải bảng xếp hạng.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
 
     elif data == "admin_menu":
         await e.answer() 
@@ -861,7 +899,7 @@ async def cb_handler(e):
             [TButton.inline("📢 BẮN THÔNG BÁO CHO USER", b"admin_broadcast")],
             [TButton.inline("🔙 TRANG CHỦ", b"back")]
         ]
-        await e.edit("👨‍💻 **BẢNG ĐIỀU KHIỂN ADMIN** ", buttons=btns)
+        await e.edit("👨‍💻 <b>BẢNG ĐIỀU KHIỂN ADMIN</b> ", buttons=btns)
 
     elif data == "admin_broadcast":
         await e.answer()
@@ -878,17 +916,17 @@ async def cb_handler(e):
                     await conv.send_message("⏳ Đang tiến hành gửi, vui lòng đợi hệ thống chạy...")
                     for u in users_res.data:
                         try:
-                            await bot.send_message(int(u['user_id']), f"📢 **THÔNG BÁO TỪ ADMIN**\n\n{msg}")
+                            await bot.send_message(int(u['user_id']), f"{emo('NOTIFY')} <b>THÔNG BÁO TỪ ADMIN</b>\n\n{msg}")
                             success += 1
                             await asyncio.sleep(0.1) 
                         except Exception: 
                             pass
-                    await conv.send_message(f"✅ Đã gửi thông báo thành công đến {success} người dùng!", buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
+                    await conv.send_message(f"{emo('SUCCESS')} Đã gửi thông báo thành công đến {success} người dùng!", buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
                 else:
-                    await conv.send_message("❌ Không có người dùng nào trong cơ sở dữ liệu.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"admin_menu")]])
+                    await conv.send_message(f"{emo('ERROR')} Không có người dùng nào trong cơ sở dữ liệu.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"admin_menu")]])
             except Exception as ex:
                 logging.error(f"Lỗi bắn thông báo: {ex}")
-                await conv.send_message("❌ Có lỗi hoặc hết hạn chờ.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"admin_menu")]])
+                await conv.send_message(f"{emo('ERROR')} Có lỗi hoặc hết hạn chờ.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"admin_menu")]])
 
     elif data == "admin_notify_top":
         await e.answer()
@@ -900,26 +938,28 @@ async def cb_handler(e):
             top_data = {}
             if getattr(res, 'data', None):
                 for r in res.data:
-                    uid_str = r['user_id']
-                    top_data[uid_str] = top_data.get(uid_str, 0) + r['amount']
+                    # ĐIỀU KIỆN TỐI THIỂU 20K
+                    if r['amount'] >= 20000:
+                        uid_str = r['user_id']
+                        top_data[uid_str] = top_data.get(uid_str, 0) + r['amount']
             
             sorted_top = sorted(top_data.items(), key=lambda x: x[1], reverse=True)[:5]
             
             if not sorted_top:
-                await e.edit("❌ Hôm nay chưa có dữ liệu TOP để thông báo.", buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
+                await e.edit(f"{emo('ERROR')} Hôm nay chưa có đại gia nào đạt mốc 20k để thông báo.", buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
                 return
             
-            txt = "🏆 **VINH DANH TOP ĐẠI GIA NẠP HÔM NAY** 🏆\n━━━━━━━━━━━━━━━━━━\n"
+            txt = "🏆 <b>VINH DANH TOP ĐẠI GIA NẠP HÔM NAY</b> 🏆\n━━━━━━━━━━━━━━━━━━\n"
             medals = ["🥇", "🥈", "🥉", "🏅", "🏅"]
             for i, (user_id, total_amt) in enumerate(sorted_top):
-                txt += f"{medals[i]} Người chơi: `{user_id}` - Tổng nạp: **{total_amt:,}đ**\n"
-            txt += "━━━━━━━━━━━━━━━━━━\n🎉 Cảm ơn các anh em đã luôn đồng hành và ủng hộ hệ thống!"
+                txt += f"{medals[i]} Người chơi: <code>{user_id}</code> - Tổng nạp: <b>{total_amt:,}đ</b>\n"
+            txt += f"━━━━━━━━━━━━━━━━━━\n🎉 Cảm ơn các anh em đã luôn đồng hành và ủng hộ hệ thống!"
             
             await send_channel_notify(txt)
-            await e.edit("✅ Đã bắn thông báo TOP lên kênh thành công!", buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
+            await e.edit(f"{emo('SUCCESS')} Đã bắn thông báo TOP lên kênh thành công!", buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
         except Exception as ex:
             logging.error(f"Lỗi bắn thông báo TOP: {ex}")
-            await e.edit("❌ Lỗi khi gửi thông báo.", buttons=[[TButton.inline("🔙", b"admin_menu")]])
+            await e.edit(f"{emo('ERROR')} Lỗi khi gửi thông báo.", buttons=[[TButton.inline("🔙", b"admin_menu")]])
 
     elif data == "admin_check_history":
         await e.answer()
@@ -931,26 +971,26 @@ async def cb_handler(e):
                 
                 res = await asyncio.to_thread(lambda: supabase.table("history").select("*").eq("user_id", check_uid).order("created_at", desc=True).limit(20).execute())
                 if not getattr(res, 'data', None):
-                    await conv.send_message(f"❌ Khách hàng `{check_uid}` không có giao dịch nào trong 24h qua.", buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
+                    await conv.send_message(f"{emo('ERROR')} Khách hàng <code>{check_uid}</code> không có giao dịch nào trong 24h qua.", buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
                     return
                 
-                txt = f"🕵️ **LỊCH SỬ CỦA USER: `{check_uid}`**\n━━━━━━━━━━━━━━━━━━\n"
+                txt = f"🕵️ <b>LỊCH SỬ CỦA USER: <code>{check_uid}</code></b>\n━━━━━━━━━━━━━━━━━━\n"
                 for h in res.data:
                     dt = datetime.fromisoformat(h['created_at'].replace('Z', '+00:00'))
                     time_str = dt.astimezone(VN_TZ).strftime('%H:%M %d/%m')
                     if h['action'] == "Nạp tiền":
-                        txt += f"🔹 `{time_str}` | Nạp tiền: **+{h['amount']:,}đ**\n"
+                        txt += f"{emo('BULLET')} <code>{time_str}</code> | Nạp tiền: <b>+{h['amount']:,}đ</b>\n"
                     else:
-                        txt += f"🔸 `{time_str}` | Mua {h['qty']} code {h['game_name']} **(-{h['amount']:,}đ)**\n"
+                        txt += f"🔸 <code>{time_str}</code> | Mua {h['qty']} code {h['game_name']} <b>(-{h['amount']:,}đ)</b>\n"
                         if h.get('codes_list'):
-                            txt += f"   🔑 Code xuất ra: `{h['codes_list']}`\n"
+                            txt += f"   🔑 Code xuất ra: <code>{h['codes_list']}</code>\n"
                 
                 await conv.send_message(txt, buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
             except ValueError:
-                await conv.send_message("❌ ID phải là số!", buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
+                await conv.send_message(f"{emo('ERROR')} ID phải là số!", buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
             except Exception as ex:
                 logging.error(f"Lỗi admin check lịch sử: {ex}")
-                await conv.send_message("❌ Lỗi truy xuất cơ sở dữ liệu!", buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
+                await conv.send_message(f"{emo('ERROR')} Lỗi truy xuất cơ sở dữ liệu!", buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
 
     elif data == "admin_clones":
         await e.answer()
@@ -964,10 +1004,10 @@ async def cb_handler(e):
                     status_icon = "🟢" if c['status'] == 'active' else "🔴"
                     btns.append([TButton.inline(f"{status_icon} Xóa {c['phone']}", f"del_clone_{c['id']}")])
             btns.append([TButton.inline("🔙 QUAY LẠI", b"admin_menu")])
-            await e.edit(f"📱 **QUẢN LÝ CLONE ({len(res.data) if getattr(res, 'data', None) else 0} acc)** ", buttons=btns)
+            await e.edit(f"📱 <b>QUẢN LÝ CLONE ({len(res.data) if getattr(res, 'data', None) else 0} acc)</b> ", buttons=btns)
         except Exception as ex:
             logging.error(f"Lỗi admin_clones: {ex}")
-            await e.edit("❌ Lỗi lấy dữ liệu clone.", buttons=[[TButton.inline("🔙", b"admin_menu")]])
+            await e.edit(f"{emo('ERROR')} Lỗi lấy dữ liệu clone.", buttons=[[TButton.inline("🔙", b"admin_menu")]])
 
     elif data.startswith("del_clone_"):
         try:
@@ -982,7 +1022,7 @@ async def cb_handler(e):
                     status_icon = "🟢" if c['status'] == 'active' else "🔴"
                     btns.append([TButton.inline(f"{status_icon} Xóa {c['phone']}", f"del_clone_{c['id']}")])
             btns.append([TButton.inline("🔙 QUAY LẠI", b"admin_menu")])
-            await e.edit(f"📱 **QUẢN LÝ CLONE ({len(res.data) if getattr(res, 'data', None) else 0} acc)** ", buttons=btns)
+            await e.edit(f"📱 <b>QUẢN LÝ CLONE ({len(res.data) if getattr(res, 'data', None) else 0} acc)</b> ", buttons=btns)
         except Exception as ex:
             logging.error(f"Lỗi xóa clone: {ex}")
 
@@ -997,20 +1037,67 @@ async def cb_handler(e):
         maint_status = await db_get_setting("MAINTENANCE_MODE", "OFF")
         maint_icon = "🟢 ĐANG BẬT" if maint_status == "ON" else "🔴 ĐANG TẮT"
         
-        txt = (f"⚙️ **CÀI ĐẶT HỆ THỐNG** \n\n"
-               f"1️⃣ **Lời chào:** {intro}\n"
-               f"2️⃣ **ID Kênh thông báo:** `{channel}`\n"
-               f"3️⃣ **Link Hỗ Trợ:** `{support_link}`\n"
-               f"4️⃣ **Kênh Ép Join:** `{force_join}`\n"
-               f"5️⃣ **Trạng thái Bảo Trì:** {maint_status}")
+        txt = (f"⚙️ <b>CÀI ĐẶT HỆ THỐNG</b> \n\n"
+               f"1️⃣ <b>Lời chào:</b> {intro}\n"
+               f"2️⃣ <b>ID Kênh thông báo:</b> <code>{channel}</code>\n"
+               f"3️⃣ <b>Link Hỗ Trợ:</b> <code>{support_link}</code>\n"
+               f"4️⃣ <b>Kênh Ép Join:</b> <code>{force_join}</code>\n"
+               f"5️⃣ <b>Trạng thái Bảo Trì:</b> {maint_status}")
         btns = [
             [TButton.inline("SỬA LỜI CHÀO", b"set_intro"), TButton.inline("SỬA KÊNH THÔNG BÁO", b"set_channel")],
             [TButton.inline("SỬA LINK HỖ TRỢ", b"set_support"), TButton.inline("SỬA KÊNH ÉP JOIN", b"set_force_channel")], 
-            [TButton.inline("SỬA QUẢNG CÁO TỰ ĐỘNG (12H)", b"set_auto_ad")],
+            [TButton.inline("SỬA ẢNH QUẢNG CÁO (6H)", b"set_auto_ad_img")],
+            [TButton.inline("SỬA TEXT QUẢNG CÁO (6H)", b"set_auto_ad")],
             [TButton.inline(f"🛠 BẢO TRÌ: {maint_icon}", b"toggle_maintenance")],
+            [TButton.inline("🌟 CÀI ĐẶT ICON ĐỘNG", b"admin_emojis")],
             [TButton.inline("🔙 QUAY LẠI", b"admin_menu")]
         ]
         await e.edit(txt, buttons=btns)
+
+    # CẬP NHẬT: TÍNH NĂNG SET LINK ẢNH QUẢNG CÁO
+    elif data == "set_auto_ad_img":
+        await e.answer()
+        await e.delete()
+        async with bot.conversation(uid) as conv:
+            try:
+                await conv.send_message("🖼 Nhập Link Ảnh (có đuôi .jpg, .png...) cho quảng cáo tự động:\n<i>(Nhập 'Chưa cài đặt' nếu chỉ muốn gửi Text)</i>")
+                response = await conv.get_response()
+                await db_set_setting("AUTO_AD_IMAGE", response.text.strip())
+                await conv.send_message(f"{emo('SUCCESS')} Đã cập nhật Ảnh quảng cáo thành công!", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
+            except Exception as ex:
+                await conv.send_message(f"{emo('ERROR')} Đã quá thời gian chờ hoặc có lỗi xảy ra.", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
+
+    # THÊM TÍNH NĂNG QUẢN LÝ ICON ĐỘNG CHO ADMIN
+    elif data == "admin_emojis":
+        await e.answer()
+        if uid != ADMIN_ID: return
+        txt = f"🌟 <b>QUẢN LÝ ICON ĐỘNG (CUSTOM EMOJI)</b>\n━━━━━━━━━━━━━━━━━━\nVui lòng chọn loại Icon bạn muốn thay đổi ID:"
+        btns = []
+        for key, val in GLOBAL_EMOJIS.items():
+            btns.append([TButton.inline(f"{val['char']} {val['desc']}", f"set_emo_{key}")])
+        btns.append([TButton.inline("🔙 QUAY LẠI CÀI ĐẶT", b"admin_settings")])
+        await e.edit(txt, buttons=btns)
+        
+    elif data.startswith("set_emo_"):
+        await e.answer()
+        if uid != ADMIN_ID: return
+        key = data.split("_", 2)[2]
+        await e.delete()
+        async with bot.conversation(uid) as conv:
+            try:
+                await conv.send_message(f"🌟 Nhập Emoji ID động mới cho <b>{GLOBAL_EMOJIS[key]['desc']}</b>:\n<i>(Bạn có thể lấy ID bằng cách gửi icon vào các bot như @stickeridbot)</i>")
+                response = await conv.get_response()
+                new_id = response.text.strip()
+                
+                if not new_id.isdigit():
+                    await conv.send_message(f"{emo('ERROR')} ID phải là các chữ số!", buttons=[[TButton.inline("🔙 THỬ LẠI", b"admin_emojis")]])
+                    return
+                
+                await db_set_setting(f"EMOJI_{key}", new_id)
+                GLOBAL_EMOJIS[key]['id'] = new_id
+                await conv.send_message(f"{emo('SUCCESS')} Cập nhật Icon động thành công!", buttons=[[TButton.inline("🔙 QUAY LẠI ICON", b"admin_emojis")]])
+            except Exception as ex:
+                await conv.send_message(f"{emo('ERROR')} Lỗi hoặc hết thời gian.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"admin_emojis")]])
 
     # TÍNH NĂNG MỚI: ADMIN BẬT/TẮT BẢO TRÌ
     elif data == "toggle_maintenance":
@@ -1019,7 +1106,7 @@ async def cb_handler(e):
         current = await db_get_setting("MAINTENANCE_MODE", "OFF")
         new_status = "ON" if current == "OFF" else "OFF"
         await db_set_setting("MAINTENANCE_MODE", new_status)
-        await e.edit(f"✅ Đã {'BẬT' if new_status == 'ON' else 'TẮT'} chế độ bảo trì thành công!", buttons=[[TButton.inline("🔙 VỀ CÀI ĐẶT", b"admin_settings")]])
+        await e.edit(f"{emo('SUCCESS')} Đã {'BẬT' if new_status == 'ON' else 'TẮT'} chế độ bảo trì thành công!", buttons=[[TButton.inline("🔙 VỀ CÀI ĐẶT", b"admin_settings")]])
 
     elif data == "set_intro":
         await e.answer()
@@ -1029,9 +1116,9 @@ async def cb_handler(e):
                 await conv.send_message("📝 Nhập lời chào mới:")
                 response = await conv.get_response()
                 await db_set_setting("BOT_INTRO", response.text.strip())
-                await conv.send_message("✅ Đã cập nhật thành công!", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
+                await conv.send_message(f"{emo('SUCCESS')} Đã cập nhật thành công!", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
             except Exception as ex:
-                await conv.send_message("❌ Đã quá thời gian chờ hoặc có lỗi xảy ra.")
+                await conv.send_message(f"{emo('ERROR')} Đã quá thời gian chờ hoặc có lỗi xảy ra.")
 
     elif data == "set_channel":
         await e.answer()
@@ -1041,9 +1128,9 @@ async def cb_handler(e):
                 await conv.send_message("📢 Nhập ID Kênh (Ví dụ: -100xxx):")
                 response = await conv.get_response()
                 await db_set_setting("NOTIFY_CHANNEL_ID", response.text.strip())
-                await conv.send_message("✅ Đã cập nhật thành công!", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
+                await conv.send_message(f"{emo('SUCCESS')} Đã cập nhật thành công!", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
             except Exception as ex:
-                await conv.send_message("❌ Đã quá thời gian chờ hoặc có lỗi xảy ra.")
+                await conv.send_message(f"{emo('ERROR')} Đã quá thời gian chờ hoặc có lỗi xảy ra.")
 
     elif data == "set_support":
         await e.answer()
@@ -1053,33 +1140,33 @@ async def cb_handler(e):
                 await conv.send_message("💬 Nhập Link Hỗ Trợ mới (VD: https://t.me/your_username):")
                 response = await conv.get_response()
                 await db_set_setting("SUPPORT_LINK", response.text.strip())
-                await conv.send_message("✅ Đã cập nhật link hỗ trợ thành công!", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
+                await conv.send_message(f"{emo('SUCCESS')} Đã cập nhật link hỗ trợ thành công!", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
             except Exception as ex:
-                await conv.send_message("❌ Đã quá thời gian chờ hoặc có lỗi xảy ra.")
+                await conv.send_message(f"{emo('ERROR')} Đã quá thời gian chờ hoặc có lỗi xảy ra.")
 
     elif data == "set_force_channel":
         await e.answer()
         await e.delete()
         async with bot.conversation(uid) as conv:
             try:
-                await conv.send_message("📢 Nhập Username hoặc ID Kênh để ép Join (VD: @kiemtienonline48h hoặc -100123...):\n*(Nhập 'Chưa cài đặt' để tắt tính năng này)*")
+                await conv.send_message("📢 Nhập Username hoặc ID Kênh để ép Join (VD: @kiemtienonline48h hoặc -100123...):\n<i>(Nhập 'Chưa cài đặt' để tắt tính năng này)</i>")
                 response = await conv.get_response()
                 await db_set_setting("FORCE_JOIN_CHANNEL", response.text.strip())
-                await conv.send_message("✅ Đã cập nhật Kênh Ép Join thành công!", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
+                await conv.send_message(f"{emo('SUCCESS')} Đã cập nhật Kênh Ép Join thành công!", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
             except Exception as ex:
-                await conv.send_message("❌ Đã quá thời gian chờ hoặc có lỗi xảy ra.")
+                await conv.send_message(f"{emo('ERROR')} Đã quá thời gian chờ hoặc có lỗi xảy ra.")
 
     elif data == "set_auto_ad":
         await e.answer()
         await e.delete()
         async with bot.conversation(uid) as conv:
             try:
-                await conv.send_message("📢 Nhập nội dung QUẢNG CÁO sẽ tự động gửi mỗi 12 tiếng:\n*(Nhập 'Chưa cài đặt' để TẮT tự động quảng cáo)*")
+                await conv.send_message("📢 Nhập nội dung QUẢNG CÁO sẽ tự động gửi mỗi 6 tiếng:\n<i>(Nhập 'Chưa cài đặt' để TẮT tự động quảng cáo)</i>")
                 response = await conv.get_response()
                 await db_set_setting("AUTO_AD_MSG", response.text.strip())
-                await conv.send_message("✅ Đã cập nhật quảng cáo tự động thành công!", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
+                await conv.send_message(f"{emo('SUCCESS')} Đã cập nhật text quảng cáo tự động thành công!", buttons=[[TButton.inline("🔙 CÀI ĐẶT", b"admin_settings")]])
             except Exception as ex:
-                await conv.send_message("❌ Đã quá thời gian chờ hoặc có lỗi xảy ra.")
+                await conv.send_message(f"{emo('ERROR')} Đã quá thời gian chờ hoặc có lỗi xảy ra.")
 
     elif data == "admin_cats":
         await e.answer()
@@ -1090,9 +1177,9 @@ async def cb_handler(e):
             cats = cats_res.data
             
             if not cats:
-                txt = "📂 **DANH SÁCH GAME CỦA SHOP** \n\n❌ Hiện tại kho chưa có game nào. Hãy thêm mới!"
+                txt = f"📂 <b>DANH SÁCH GAME CỦA SHOP</b> \n\n{emo('ERROR')} Hiện tại kho chưa có game nào. Hãy thêm mới!"
             else:
-                txt = "📂 **DANH SÁCH GAME CỦA SHOP** \n━━━━━━━━━━━━━━━━━━\n"
+                txt = "📂 <b>DANH SÁCH GAME CỦA SHOP</b> \n━━━━━━━━━━━━━━━━━━\n"
                 for c in cats:
                     try:
                         count_res = await asyncio.to_thread(lambda: supabase.table("codes").select("id", count='exact').eq("category_id", c['id']).eq("status", "available").limit(1).execute())
@@ -1103,10 +1190,10 @@ async def cb_handler(e):
 
                     owner_label = f"🧑‍💼 Của CTV: {c['owner_id']}" if c.get('owner_id') and c['owner_id'] != 0 else "👑 Của Admin"
                     
-                    txt += f"🔸 **ID: `{c['id']}`** | **{c['name']}**\n"
-                    txt += f"   ┣ 💵 Giá bán: {c['price']:,}đ\n"
+                    txt += f"{emo('BULLET')} <b>ID: <code>{c['id']}</code></b> | <b>{c['name']}</b>\n"
+                    txt += f"   ┣ {emo('MONEY')} Giá bán: {c['price']:,}đ\n"
                     txt += f"   ┣ 🏷 Thuộc: {owner_label}\n"
-                    txt += f"   ┗ 📦 Tồn kho: {stock} code\n"
+                    txt += f"   ┗ {emo('BOX')} Tồn kho: {stock} code\n"
                     txt += "━━━━━━━━━━━━━━━━━━\n"
             
             btns = [
@@ -1117,17 +1204,17 @@ async def cb_handler(e):
             await e.edit(txt, buttons=btns)
         except Exception as ex:
             logging.error(f"Lỗi tải danh mục admin: {ex}")
-            await e.edit("❌ Lỗi truy xuất cơ sở dữ liệu.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"admin_menu")]])
+            await e.edit(f"{emo('ERROR')} Lỗi truy xuất cơ sở dữ liệu.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"admin_menu")]])
 
     elif data == "add_cat":
         await e.answer()
         await e.delete()
         async with bot.conversation(uid) as conv:
             try:
-                await conv.send_message("🎮 Nhập Tên Game Mới:")
+                await conv.send_message(f"{emo('GAME')} Nhập Tên Game Mới:")
                 name = (await conv.get_response()).text.strip()
                 
-                await conv.send_message("💰 Nhập Giá bán (Chỉ điền số, VD: 15000):")
+                await conv.send_message(f"{emo('MONEY')} Nhập Giá bán (Chỉ điền số, VD: 15000):")
                 price = int((await conv.get_response()).text.strip())
                 
                 await conv.send_message("🤖 Nhập bot mua code (Bỏ chữ @ đi, VD: kiemtienbot):")
@@ -1137,12 +1224,12 @@ async def cb_handler(e):
                 desc = (await conv.get_response()).text.strip()
                 
                 await asyncio.to_thread(lambda: supabase.table("categories").insert({"name": name, "price": price, "target_bot": bot_target, "description": desc}).execute())
-                await conv.send_message(f"✅ Đã tạo game thành công: **{name}**", buttons=[[TButton.inline("🔙 QUAY LẠI DANH MỤC", b"admin_cats")]])
+                await conv.send_message(f"{emo('SUCCESS')} Đã tạo game thành công: <b>{name}</b>", buttons=[[TButton.inline("🔙 QUAY LẠI DANH MỤC", b"admin_cats")]])
             except ValueError:
-                await conv.send_message("❌ Lỗi: Giá bán phải là một con số!", buttons=[[TButton.inline("🔙 LÀM LẠI", b"admin_cats")]])
+                await conv.send_message(f"{emo('ERROR')} Lỗi: Giá bán phải là một con số!", buttons=[[TButton.inline("🔙 LÀM LẠI", b"admin_cats")]])
             except Exception as ex:
                 logging.error(f"Lỗi tạo category: {ex}")
-                await conv.send_message("❌ Có lỗi xảy ra trong quá trình tạo!", buttons=[[TButton.inline("🔙 LÀM LẠI", b"admin_cats")]])
+                await conv.send_message(f"{emo('ERROR')} Có lỗi xảy ra trong quá trình tạo!", buttons=[[TButton.inline("🔙 LÀM LẠI", b"admin_cats")]])
 
     elif data == "edit_cat_price":
         await e.answer()
@@ -1152,16 +1239,16 @@ async def cb_handler(e):
                 await conv.send_message("✏️ Nhập ID của game cần sửa giá (Xem ID ở mục Quản lý danh mục):")
                 cid = int((await conv.get_response()).text.strip())
                 
-                await conv.send_message("💰 Nhập GIÁ BÁN MỚI (Chỉ ghi số):")
+                await conv.send_message(f"{emo('MONEY')} Nhập GIÁ BÁN MỚI (Chỉ ghi số):")
                 new_price = int((await conv.get_response()).text.strip())
                 
                 await asyncio.to_thread(lambda: supabase.table("categories").update({"price": new_price}).eq("id", cid).execute())
-                await conv.send_message("✅ Đã cập nhật giá mới thành công!", buttons=[[TButton.inline("🔙 QUAY LẠI DANH MỤC", b"admin_cats")]])
+                await conv.send_message(f"{emo('SUCCESS')} Đã cập nhật giá mới thành công!", buttons=[[TButton.inline("🔙 QUAY LẠI DANH MỤC", b"admin_cats")]])
             except ValueError:
-                await conv.send_message("❌ Lỗi: ID và Giá tiền phải là số!")
+                await conv.send_message(f"{emo('ERROR')} Lỗi: ID và Giá tiền phải là số!")
             except Exception as ex:
                 logging.error(f"Lỗi sửa giá: {ex}")
-                await conv.send_message("❌ Lỗi kết nối CSDL!")
+                await conv.send_message(f"{emo('ERROR')} Lỗi kết nối CSDL!")
 
     elif data == "del_cat":
         await e.answer()
@@ -1174,19 +1261,19 @@ async def cb_handler(e):
                 await asyncio.to_thread(lambda: supabase.table("codes").delete().eq("category_id", cid).execute())
                 await asyncio.to_thread(lambda: supabase.table("categories").delete().eq("id", cid).execute())
                 
-                await conv.send_message("✅ Đã xóa game và toàn bộ code của game đó!", buttons=[[TButton.inline("🔙 QUAY LẠI DANH MỤC", b"admin_cats")]])
+                await conv.send_message(f"{emo('SUCCESS')} Đã xóa game và toàn bộ code của game đó!", buttons=[[TButton.inline("🔙 QUAY LẠI DANH MỤC", b"admin_cats")]])
             except ValueError:
-                await conv.send_message("❌ Lỗi: ID phải là số!")
+                await conv.send_message(f"{emo('ERROR')} Lỗi: ID phải là số!")
             except Exception as ex:
                 logging.error(f"Lỗi xóa game: {ex}")
-                await conv.send_message("❌ Lỗi không thể xóa!")
+                await conv.send_message(f"{emo('ERROR')} Lỗi không thể xóa!")
 
     elif data == "add_manual_codes":
         await e.answer()
         await e.delete()
         async with bot.conversation(uid) as conv:
             try:
-                await conv.send_message("📦 Nhập ID Danh mục (Game) muốn thêm code vào:")
+                await conv.send_message(f"{emo('BOX')} Nhập ID Danh mục (Game) muốn thêm code vào:")
                 cat_id = int((await conv.get_response()).text.strip())
                 
                 await conv.send_message("👉 Gửi danh sách code (Mỗi code nằm trên 1 dòng riêng biệt):")
@@ -1200,36 +1287,36 @@ async def cb_handler(e):
                 
                 if insert_data:
                     await asyncio.to_thread(lambda: supabase.table("codes").insert(insert_data).execute())
-                    await conv.send_message(f"✅ Đã nạp thành công {len(insert_data)} code tay!", buttons=[[TButton.inline("🔙 QUAY LẠI DANH MỤC", b"admin_cats")]])
+                    await conv.send_message(f"{emo('SUCCESS')} Đã nạp thành công {len(insert_data)} code tay!", buttons=[[TButton.inline("🔙 QUAY LẠI DANH MỤC", b"admin_cats")]])
                 else:
-                    await conv.send_message("❌ Bạn chưa nhập code nào hợp lệ.", buttons=[[TButton.inline("🔙 QUAY LẠI DANH MỤC", b"admin_cats")]])
+                    await conv.send_message(f"{emo('ERROR')} Bạn chưa nhập code nào hợp lệ.", buttons=[[TButton.inline("🔙 QUAY LẠI DANH MỤC", b"admin_cats")]])
             except ValueError:
-                await conv.send_message("❌ Lỗi: ID Danh mục phải là số!")
+                await conv.send_message(f"{emo('ERROR')} Lỗi: ID Danh mục phải là số!")
             except Exception as ex:
                 logging.error(f"Lỗi thêm code tay: {ex}")
-                await conv.send_message("❌ Lỗi hệ thống khi thêm code!")
+                await conv.send_message(f"{emo('ERROR')} Lỗi hệ thống khi thêm code!")
 
     elif data == "admin_money":
         await e.answer()
         await e.delete()
         async with bot.conversation(uid) as conv:
             try:
-                await conv.send_message("👤 Nhập ID khách hàng cần cộng/trừ tiền:")
+                await conv.send_message(f"{emo('USER')} Nhập ID khách hàng cần cộng/trừ tiền:")
                 tid = int((await conv.get_response()).text.strip())
                 
-                await conv.send_message("💰 Nhập số tiền (Cộng thêm thì ghi 50000, Trừ đi thì ghi -50000):")
+                await conv.send_message(f"{emo('MONEY')} Nhập số tiền (Cộng thêm thì ghi 50000, Trừ đi thì ghi -50000):")
                 amt = int((await conv.get_response()).text.strip())
                 
                 user = await db_get_user(tid)
                 new_balance = user['balance'] + amt
                 
                 await asyncio.to_thread(lambda: supabase.table("users").update({"balance": new_balance}).eq("user_id", tid).execute())
-                await conv.send_message(f"✅ Thành công! Số dư mới của khách {tid} là: {new_balance:,}đ", buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
+                await conv.send_message(f"{emo('SUCCESS')} Thành công! Số dư mới của khách {tid} là: {new_balance:,}đ", buttons=[[TButton.inline("🔙 QUAY LẠI ADMIN", b"admin_menu")]])
             except ValueError:
-                await conv.send_message("❌ ID và Số tiền phải là chữ số!")
+                await conv.send_message(f"{emo('ERROR')} ID và Số tiền phải là chữ số!")
             except Exception as ex:
                 logging.error(f"Lỗi cộng tiền admin: {ex}")
-                await conv.send_message("❌ Lỗi cơ sở dữ liệu!")
+                await conv.send_message(f"{emo('ERROR')} Lỗi cơ sở dữ liệu!")
 
     elif data == "history":
         await e.answer()
@@ -1241,23 +1328,23 @@ async def cb_handler(e):
                 await e.edit("🕒 Bạn chưa có giao dịch nào trong 24h qua.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
                 return
             
-            txt = "🕒 **LỊCH SỬ GIAO DỊCH (24H QUA)**\n━━━━━━━━━━━━━━━━━━\n"
+            txt = "🕒 <b>LỊCH SỬ GIAO DỊCH (24H QUA)</b>\n━━━━━━━━━━━━━━━━━━\n"
             for h in hist_data:
                 dt = datetime.fromisoformat(h['created_at'].replace('Z', '+00:00'))
                 time_str = dt.astimezone(VN_TZ).strftime('%H:%M %d/%m') 
                 
                 if h['action'] == "Nạp tiền":
-                    txt += f"🔹 `{time_str}` | Nạp tiền: **+{h['amount']:,}đ**\n"
+                    txt += f"{emo('BULLET')} <code>{time_str}</code> | Nạp tiền: <b>+{h['amount']:,}đ</b>\n"
                 else:
-                    txt += f"🔸 `{time_str}` | Mua **{h['qty']}** {h['game_name']} (-{h['amount']:,}đ)\n"
+                    txt += f"🔸 <code>{time_str}</code> | Mua <b>{h['qty']}</b> {h['game_name']} (-{h['amount']:,}đ)\n"
                     if h.get('codes_list'):
-                        txt += f"   🔑 Mã Code: `{h['codes_list']}`\n"
+                        txt += f"   🔑 Mã Code: <code>{h['codes_list']}</code>\n"
             
-            txt += "━━━━━━━━━━━━━━━━━━\n*(Dữ liệu lịch sử và mã code sẽ tự động xóa sạch sau 24h để bảo mật)*"
+            txt += "━━━━━━━━━━━━━━━━━━\n<i>(Dữ liệu lịch sử và mã code sẽ tự động xóa sạch sau 24h để bảo mật)</i>"
             await e.edit(txt, buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
         except Exception as ex:
             logging.error(f"Lỗi xem lịch sử: {ex}")
-            await e.edit("❌ Lỗi tải lịch sử, vui lòng thử lại.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
+            await e.edit(f"{emo('ERROR')} Lỗi tải lịch sử, vui lòng thử lại.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
 
     elif data == "list_categories":
         await e.answer()
@@ -1266,7 +1353,7 @@ async def cb_handler(e):
             cats = cats_res.data
             
             if not cats: 
-                await e.edit("❌ Shop hiện tại chưa có danh mục game nào đang bán.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
+                await e.edit(f"{emo('ERROR')} Shop hiện tại chưa có danh mục game nào đang bán.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
                 return 
             
             btns = []
@@ -1281,10 +1368,10 @@ async def cb_handler(e):
                 btns.append([TButton.inline(f"🎮 {c['name']} - {c['price']:,}đ ({status})", f"vcat_{c['id']}")])
             
             btns.append([TButton.inline("🔙 QUAY LẠI", b"back")])
-            await e.edit("🛒 **DANH SÁCH GAME ĐANG BÁN:**", buttons=btns)
+            await e.edit("🛒 <b>DANH SÁCH GAME ĐANG BÁN:</b>", buttons=btns)
         except Exception as ex:
             logging.error(f"Lỗi list_categories: {ex}")
-            await e.edit("❌ Lỗi tải danh mục.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
+            await e.edit(f"{emo('ERROR')} Lỗi tải danh mục.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"back")]])
 
     elif data.startswith("vcat_"):
         await e.answer()
@@ -1293,7 +1380,7 @@ async def cb_handler(e):
             cat_res = await asyncio.to_thread(lambda: supabase.table("categories").select("*").eq("id", cid).execute())
             
             if not getattr(cat_res, 'data', None):
-                await e.edit("❌ Danh mục này không tồn tại hoặc đã bị xóa.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"list_categories")]])
+                await e.edit(f"{emo('ERROR')} Danh mục này không tồn tại hoặc đã bị xóa.", buttons=[[TButton.inline("🔙 QUAY LẠI", b"list_categories")]])
                 return
 
             cat = cat_res.data[0]
@@ -1307,16 +1394,16 @@ async def cb_handler(e):
             lv, discount_rate, _ = await get_user_level_and_discount(uid)
             discount_price = int(cat['price'] * (1 - discount_rate))
                 
-            txt = (f"🎮 **{cat['name']}** \n━━━━━━━━━━━━\n"
-                   f"📝 {cat['description']}\n\n")
+            txt = (f"{emo('GAME')} <b>{cat['name']}</b> \n━━━━━━━━━━━━\n"
+                   f"📝 <i>{cat['description']}</i>\n\n")
             
             if discount_rate > 0:
-                txt += f"💵 Giá gốc: ~{cat['price']:,}đ~\n"
-                txt += f"🔥 Giá VIP {lv}: **{discount_price:,}đ** (Giảm {int(discount_rate*100)}%)\n"
+                txt += f"{emo('MONEY')} Giá gốc: <s>~{cat['price']:,}đ~</s>\n"
+                txt += f"🔥 Giá VIP {lv}: <b>{discount_price:,}đ</b> (Giảm {int(discount_rate*100)}%)\n"
             else:
-                txt += f"💵 Giá bán: **{cat['price']:,}đ** \n"
+                txt += f"{emo('MONEY')} Giá bán: <b>{cat['price']:,}đ</b> \n"
                 
-            txt += f"📦 Tồn kho hiện tại: **{stock}** code"
+            txt += f"{emo('BOX')} Tồn kho hiện tại: <b>{stock}</b> code"
             
             btns = [
                 [TButton.inline("🛒 MUA 1 CODE", f"buy_{cid}_1")],
@@ -1326,7 +1413,7 @@ async def cb_handler(e):
             await e.edit(txt, buttons=btns)
         except Exception as ex:
             logging.error(f"Lỗi vcat_: {ex}")
-            await e.edit("❌ Lỗi truy xuất thông tin game.", buttons=[[TButton.inline("🔙", b"list_categories")]])
+            await e.edit(f"{emo('ERROR')} Lỗi truy xuất thông tin game.", buttons=[[TButton.inline("🔙", b"list_categories")]])
 
     elif data.startswith("buycustom_"):
         await e.answer()
@@ -1341,10 +1428,10 @@ async def cb_handler(e):
                 
                 await process_purchase(e, uid, cid, qty, conv)
             except ValueError:
-                await conv.send_message("❌ Lỗi: Vui lòng chỉ nhập số lượng hợp lệ!", buttons=[[TButton.inline("🔙 QUAY LẠI", b"list_categories")]])
+                await conv.send_message(f"{emo('ERROR')} Lỗi: Vui lòng chỉ nhập số lượng hợp lệ!", buttons=[[TButton.inline("🔙 QUAY LẠI", b"list_categories")]])
             except Exception as ex:
                 logging.error(f"Lỗi buycustom: {ex}")
-                await conv.send_message("❌ Quá thời gian chờ hoặc có lỗi xảy ra.", buttons=[[TButton.inline("🔙", b"list_categories")]])
+                await conv.send_message(f"{emo('ERROR')} Quá thời gian chờ hoặc có lỗi xảy ra.", buttons=[[TButton.inline("🔙", b"list_categories")]])
 
     elif data.startswith("buy_"):
         await e.answer()
@@ -1361,18 +1448,18 @@ async def cb_handler(e):
             [TButton.inline("💸 Nạp 100,000đ", "p_100000"), TButton.inline("💸 Nạp 200,000đ", "p_200000")],
             [TButton.inline("🔙 QUAY LẠI TRANG CHỦ", b"back")]
         ]
-        await e.edit("🏦 **VUI LÒNG CHỌN MỨC TIỀN MUỐN NẠP:** ", buttons=btns)
+        await e.edit("🏦 <b>VUI LÒNG CHỌN MỨC TIỀN MUỐN NẠP:</b> ", buttons=btns)
 
     elif data.startswith("p_"):
         await e.answer()
         amt = data.split("_")[1]
         qr = f"https://img.vietqr.io/image/MSB-{STK_MSB}-compact2.png?amount={amt}&addInfo=NAP%20{uid}"
-        txt = (f"📥 **HƯỚNG DẪN NẠP TIỀN:**\n\n"
-               f"🏦 Ngân hàng: **MSB**\n"
-               f"💳 Số tài khoản: `{STK_MSB}`\n"
-               f"💰 Số tiền: **{int(amt):,}đ**\n"
-               f"📝 Nội dung chuyển khoản (BẮT BUỘC): `NAP {uid}`\n\n"
-               f"*(Vui lòng bấm nút mở mã QR bên dưới hoặc chuyển khoản đúng nội dung để được cộng tiền tự động 24/7)*")
+        txt = (f"📥 <b>HƯỚNG DẪN NẠP TIỀN:</b>\n\n"
+               f"🏦 Ngân hàng: <b>MSB</b>\n"
+               f"💳 Số tài khoản: <code>{STK_MSB}</code>\n"
+               f"{emo('MONEY')} Số tiền: <b>{int(amt):,}đ</b>\n"
+               f"📝 Nội dung chuyển khoản (BẮT BUỘC): <code>NAP {uid}</code>\n\n"
+               f"<i>(Vui lòng bấm nút mở mã QR bên dưới hoặc chuyển khoản đúng nội dung để được cộng tiền tự động 24/7)</i>")
         await e.edit(txt, buttons=[[TButton.url("🖼 BẤM VÀO ĐÂY ĐỂ MỞ MÃ QR", qr)], [TButton.inline("🔙 QUAY LẠI", b"dep_menu")]])
 
 # ---> CẬP NHẬT: XỬ LÝ CHIA DOANH THU CTV ĐÃ ĐƯỢC FIX LỖI TẬN GỐC
@@ -1380,7 +1467,7 @@ async def process_purchase(e, uid, cid, qty, conv=None):
     try:
         cat_res = await asyncio.to_thread(lambda: supabase.table("categories").select("*").eq("id", cid).execute())
         if not getattr(cat_res, 'data', None):
-            msg = "❌ Lỗi: Không tìm thấy game này!"
+            msg = f"{emo('ERROR')} Lỗi: Không tìm thấy game này!"
             if conv: await conv.send_message(msg, buttons=[[TButton.inline("🔙 LÀM LẠI", b"list_categories")]])
             else: await e.edit(msg, buttons=[[TButton.inline("🔙 LÀM LẠI", b"list_categories")]])
             return
@@ -1393,7 +1480,7 @@ async def process_purchase(e, uid, cid, qty, conv=None):
         cost = int(original_cost * (1 - discount_rate))
         
         if user['balance'] < cost: 
-            msg = "❌ Rất tiếc, số dư của bạn không đủ để thanh toán. Vui lòng nạp thêm tiền!"
+            msg = f"{emo('ERROR')} Rất tiếc, số dư của bạn không đủ để thanh toán. Vui lòng nạp thêm tiền!"
             if conv: await conv.send_message(msg, buttons=[[TButton.inline("🔙", b"list_categories")]])
             else: await bot.send_message(uid, msg)
             return
@@ -1402,7 +1489,7 @@ async def process_purchase(e, uid, cid, qty, conv=None):
         stock_data = getattr(stock_res, 'data', [])
         
         if len(stock_data) < qty: 
-            msg = f"❌ Rất tiếc, trong kho chỉ còn {len(stock_data)} code, không đủ số lượng bạn cần!"
+            msg = f"{emo('ERROR')} Rất tiếc, trong kho chỉ còn {len(stock_data)} code, không đủ số lượng bạn cần!"
             if conv: await conv.send_message(msg, buttons=[[TButton.inline("🔙", b"list_categories")]])
             else: await bot.send_message(uid, msg)
             return
@@ -1443,12 +1530,12 @@ async def process_purchase(e, uid, cid, qty, conv=None):
                     # Bắn thông báo cho CTV
                     asyncio.create_task(bot.send_message(
                         owner_id, 
-                        f"🎉 **CHÚC MỪNG: BẠN VỪA BÁN ĐƯỢC HÀNG!**\n"
-                        f"👤 Khách hàng ID: `{uid}`\n"
-                        f"🎮 Sản phẩm: {cat['name']} (Số lượng: {qty})\n"
+                        f"{emo('GIFT')} <b>CHÚC MỪNG: BẠN VỪA BÁN ĐƯỢC HÀNG!</b>\n"
+                        f"{emo('USER')} Khách hàng ID: <code>{uid}</code>\n"
+                        f"{emo('GAME')} Sản phẩm: {cat['name']} (Số lượng: {qty})\n"
                         f"💵 Khách trả: {cost:,}đ\n"
                         f"⚙️ Phí hệ thống: -{admin_fee:,}đ\n"
-                        f"💰 **Doanh thu cộng ví CTV: +{ctv_revenue:,}đ**"
+                        f"{emo('MONEY')} <b>Doanh thu cộng ví CTV: +{ctv_revenue:,}đ</b>"
                     ))
                 except Exception as ctv_err:
                     logging.error(f"Lỗi chia tiền/ghi lịch sử cho CTV {owner_id}: {ctv_err}")
@@ -1464,38 +1551,38 @@ async def process_purchase(e, uid, cid, qty, conv=None):
 
         vip_bill_str = f" (Đã áp dụng giảm giá VIP {lv})" if lv > 0 else ""
         res_text = (
-            f"✅ **THANH TOÁN THÀNH CÔNG!**\n"
+            f"{emo('SUCCESS')} <b>THANH TOÁN THÀNH CÔNG!</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"🔖 **Mã Đơn:** `{order_id}`\n"
-            f"🎮 **Sản phẩm:** {cat['name']}\n"
-            f"📦 **Số lượng:** {qty} code\n"
-            f"💵 **Thanh toán:** **-{cost:,} VNĐ**{vip_bill_str}\n"
-            f"💰 **Số dư còn lại:** **{user['balance'] - cost:,} VNĐ**\n"
-            f"⏰ **Thời gian:** `{now_str}`\n"
+            f"🔖 <b>Mã Đơn:</b> <code>{order_id}</code>\n"
+            f"{emo('GAME')} <b>Sản phẩm:</b> {cat['name']}\n"
+            f"{emo('BOX')} <b>Số lượng:</b> {qty} code\n"
+            f"{emo('MONEY')} <b>Thanh toán:</b> <b>-{cost:,} VNĐ</b>{vip_bill_str}\n"
+            f"{emo('MONEY')} <b>Số dư còn lại:</b> <b>{user['balance'] - cost:,} VNĐ</b>\n"
+            f"⏰ <b>Thời gian:</b> <code>{now_str}</code>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"🔑 **DANH SÁCH MÃ CODE CỦA BẠN:**\n"
+            f"🔑 <b>DANH SÁCH MÃ CODE CỦA BẠN:</b>\n"
         )
         codes_str_db = ""
         for c in stock_data:
             await asyncio.to_thread(lambda: supabase.table("codes").update({"status": "sold"}).eq("id", c['id']).execute())
-            res_text += f"👉 `{c['code']}`\n"
+            res_text += f"👉 <code>{c['code']}</code>\n"
             codes_str_db += f"{c['code']} | "
             
-        res_text += "\n*Cảm ơn bạn đã mua hàng! Hãy lưu lại mã đơn để được hỗ trợ khi cần thiết.*"
+        res_text += f"\n<i>Cảm ơn bạn đã mua hàng! Hãy lưu lại mã đơn để được hỗ trợ khi cần thiết.</i>"
 
         await db_add_history(uid, "Mua Code", cat['name'], qty, cost, codes_str_db.strip(" | "))
         
         channel_notify = (
-            f"🛒 **ĐƠN HÀNG MỚI THÀNH CÔNG**\n"
+            f"🛒 <b>ĐƠN HÀNG MỚI THÀNH CÔNG</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"🔖 **Mã Đơn:** `{order_id}`\n"
-            f"👤 **Khách hàng ID:** `{uid}`\n"
-            f"🎮 **Sản phẩm:** **{cat['name']}**\n"
-            f"📦 **Số lượng:** **{qty} code**\n"
-            f"💰 **Tổng bill:** **-{cost:,} VNĐ**\n"
-            f"⏰ **Thời gian:** `{now_str}`\n"
+            f"🔖 <b>Mã Đơn:</b> <code>{order_id}</code>\n"
+            f"{emo('USER')} <b>Khách hàng ID:</b> <code>{uid}</code>\n"
+            f"{emo('GAME')} <b>Sản phẩm:</b> <b>{cat['name']}</b>\n"
+            f"{emo('BOX')} <b>Số lượng:</b> <b>{qty} code</b>\n"
+            f"{emo('MONEY')} <b>Tổng bill:</b> <b>-{cost:,} VNĐ</b>\n"
+            f"⏰ <b>Thời gian:</b> <code>{now_str}</code>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"✅ *(Hệ thống tự động bảo mật mã code)*"
+            f"{emo('SUCCESS')} <i>(Hệ thống tự động bảo mật mã code)</i>"
         )
         await send_channel_notify(channel_notify)
             
@@ -1506,7 +1593,7 @@ async def process_purchase(e, uid, cid, qty, conv=None):
             
     except Exception as ex:
         logging.error(f"Lỗi xử lý thanh toán mua code: {ex}")
-        if conv: await conv.send_message("❌ Lỗi hệ thống khi thanh toán.")
+        if conv: await conv.send_message(f"{emo('ERROR')} Lỗi hệ thống khi thanh toán.")
 
 @bot.on(events.CallbackQuery(data=b"add_clone"))
 async def add_clone_process(e):
@@ -1521,6 +1608,7 @@ async def add_clone_process(e):
             phone = (await conv.get_response()).text.strip()
             
             client = TelegramClient(StringSession(), API_ID, API_HASH, loop=loop)
+            client.parse_mode = 'html'
             await client.connect()
             await client.send_code_request(phone)
             
@@ -1536,13 +1624,13 @@ async def add_clone_process(e):
                 
             ss = client.session.save()
             await asyncio.to_thread(lambda: supabase.table("my_clones").insert({"phone": phone, "session": ss, "status": "active"}).execute())
-            await conv.send_message("✅ Quá trình thêm Clone hoàn tất và thành công!", buttons=[[TButton.inline("🔙 QUẢN LÝ CLONE", b"admin_clones")]])
+            await conv.send_message(f"{emo('SUCCESS')} Quá trình thêm Clone hoàn tất và thành công!", buttons=[[TButton.inline("🔙 QUẢN LÝ CLONE", b"admin_clones")]])
             
             asyncio.create_task(worker_grab_loop(client, phone))
             
         except Exception as ex:
             logging.error(f"Lỗi thêm clone: {ex}")
-            await conv.send_message("❌ Có lỗi xảy ra trong quá trình đăng nhập (Sai sdt, sai OTP, hoặc Timeout).", buttons=[[TButton.inline("🔙", b"admin_clones")]])
+            await conv.send_message(f"{emo('ERROR')} Có lỗi xảy ra trong quá trình đăng nhập (Sai sdt, sai OTP, hoặc Timeout).", buttons=[[TButton.inline("🔙", b"admin_clones")]])
 
 # ==================== WEBHOOK & KEEP-ALIVE (TREO 24/7) ====================
 @app.route('/sepay-webhook', methods=['POST'])
@@ -1576,7 +1664,7 @@ def webhook():
                     asyncio.run_coroutine_threadsafe(
                         bot.send_message(
                             referrer_id, 
-                            f"🎊 **BẠN VỪA NHẬN ĐƯỢC HOA HỒNG!**\nThành viên do bạn giới thiệu (ID: `{uid}`) vừa nạp {amt:,}đ.\nBạn được cộng tự động **+{commission:,} VNĐ** (10%) vào tài khoản!"
+                            f"{emo('GIFT')} <b>BẠN VỪA NHẬN ĐƯỢC HOA HỒNG!</b>\nThành viên do bạn giới thiệu (ID: <code>{uid}</code>) vừa nạp {amt:,}đ.\nBạn được cộng tự động <b>+{commission:,} VNĐ</b> (10%) vào tài khoản!"
                         ), 
                         loop
                     )
@@ -1587,25 +1675,25 @@ def webhook():
             now_str = datetime.now(VN_TZ).strftime('%H:%M:%S %d/%m/%Y')
             
             notify_text = (
-                f"💳 **GIAO DỊCH NẠP TIỀN THÀNH CÔNG**\n"
+                f"💳 <b>GIAO DỊCH NẠP TIỀN THÀNH CÔNG</b>\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
-                f"🔖 **Mã GD:** `{tx_id}`\n"
-                f"👤 **Khách hàng ID:** `{uid}`\n"
-                f"💵 **Số tiền nạp:** **+{amt:,} VNĐ**\n"
-                f"💬 **Nội dung:** `{content}`\n"
-                f"⏰ **Thời gian:** `{now_str}`\n"
+                f"🔖 <b>Mã GD:</b> <code>{tx_id}</code>\n"
+                f"{emo('USER')} <b>Khách hàng ID:</b> <code>{uid}</code>\n"
+                f"{emo('MONEY')} <b>Số tiền nạp:</b> <b>+{amt:,} VNĐ</b>\n"
+                f"💬 <b>Nội dung:</b> <code>{content}</code>\n"
+                f"⏰ <b>Thời gian:</b> <code>{now_str}</code>\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
-                f"✅ *Hệ thống cộng tiền tự động 24/7*"
+                f"{emo('SUCCESS')} <i>Hệ thống cộng tiền tự động 24/7</i>"
             )
             sync_send_channel_notify(notify_text)
             
             user_text = (
-                f"🎉 **NẠP TIỀN THÀNH CÔNG!**\n"
+                f"{emo('SUCCESS')} <b>NẠP TIỀN THÀNH CÔNG!</b>\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
-                f"🔖 **Mã Giao Dịch:** `{tx_id}`\n"
-                f"💵 **Số tiền:** **+{amt:,} VNĐ**\n"
-                f"💰 **Số dư hiện tại:** **{new_balance:,} VNĐ**\n"
-                f"⏰ **Thời gian:** `{now_str}`\n"
+                f"🔖 <b>Mã Giao Dịch:</b> <code>{tx_id}</code>\n"
+                f"{emo('MONEY')} <b>Số tiền:</b> <b>+{amt:,} VNĐ</b>\n"
+                f"💰 <b>Số dư hiện tại:</b> <b>{new_balance:,} VNĐ</b>\n"
+                f"⏰ <b>Thời gian:</b> <code>{now_str}</code>\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"Cảm ơn bạn đã sử dụng dịch vụ của hệ thống! 🚀"
             )
@@ -1619,28 +1707,29 @@ def webhook():
         logging.error(f"Lỗi webhook: {e}")
         return jsonify({"status": "error"}), 500
 
+# === GIỮ CHUẨN CẤU TRÚC CHẠY WEB NHƯ MAIN13 (PORT 10000) ===
 def run_web():
     app.run(host="0.0.0.0", port=10000)
 
 Thread(target=run_web).start()
 
-def keep_alive():
+def ping_server():
     while True:
         try:
             urllib.request.urlopen("http://127.0.0.1:10000/", timeout=10)
         except Exception as e:
-            logging.warning(f"Lỗi ping keep_alive: {e}")
+            logging.warning(f"Lỗi ping_server: {e}")
         time.sleep(120) 
 
-Thread(target=keep_alive).start()
+Thread(target=ping_server).start()
 
 async def main():
+    await load_emojis()
     await bot.start(bot_token=BOT_TOKEN)
     print("--- BOT IS STARTED AND ONLINE ---")
     
     asyncio.create_task(auto_clean_history())
     asyncio.create_task(auto_daily_reward())
-    # KÍCH HOẠT VÒNG LẶP SPAM QUẢNG CÁO MỖI 12 TIẾNG
     asyncio.create_task(auto_broadcast_ad())
     
     try:
@@ -1651,6 +1740,7 @@ async def main():
             for c in clones:
                 try:
                     cl = TelegramClient(StringSession(c['session']), API_ID, API_HASH, loop=loop)
+                    cl.parse_mode = 'html'
                     asyncio.create_task(worker_grab_loop(cl, c['phone']))
                 except Exception as clone_err: 
                     logging.error(f"Lỗi khởi động clone {c['phone']}: {clone_err}")
