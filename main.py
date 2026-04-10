@@ -1709,14 +1709,14 @@ def webhook():
 
 # === GIỮ CHUẨN CẤU TRÚC CHẠY WEB NHƯ MAIN13 (PORT 10000) ===
 def run_web():
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=8080)
 
 Thread(target=run_web).start()
 
 def ping_server():
     while True:
         try:
-            urllib.request.urlopen("http://127.0.0.1:10000/", timeout=10)
+            urllib.request.urlopen("http://127.0.0.1:8080/", timeout=10)
         except Exception as e:
             logging.warning(f"Lỗi ping_server: {e}")
         time.sleep(120) 
