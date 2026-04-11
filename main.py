@@ -56,6 +56,91 @@ logging.basicConfig(level=logging.INFO)
 bot = TelegramClient(StringSession(), API_ID, API_HASH)
 
 loop = asyncio.new_event_loop()
+
+```python
+# ==================== HỆ THỐNG EMOJI PREMIUM TỰ ĐỘNG ====================
+PREMIUM_EMOJIS = {}
+async def load_premium_emojis():
+global PREMIUM_EMOJIS
+try:
+# Lấy toàn bộ ID emoji động từ Supabase (bảng settings)
+res = await asyncio.to_thread(lambda: supabase.table("settings").select("key, value").like("key", "EMOJI_%").execute())
+if res.data:
+# Cắt bỏ chữ "EMOJI_" để lấy icon gốc làm key
+PREMIUM_EMOJIS = {item['key'].replace("EMOJI_", ""): item['value'] for item in res.data}
+except Exception as e:
+logging.error(f"Lỗi load emoji: {e}")
+def apply_premium_emojis(text):
+if not text or not isinstance(text, str):
+return text
+for std_emoji, premium_id in PREMIUM_EMOJIS.items():
+if premium_id and std_emoji in text:
+custom_tag = f"<tg-custom-emoji emoji-id='{premium_id}'>{std_emoji}</tg-custom-emoji>"
+text = text.replace(std_emoji, custom_tag)
+return text
+# Ghi đè hàm cốt lõi của Telethon để đánh chặn tin nhắn
+original_send_message = bot.send_message
+original_edit_message = bot.edit_message
+async def patched_send_message(*args, **kwargs):
+if len(args) > 1 and isinstance(args[1], str):
+args = list(args)
+args[1] = apply_premium_emojis(args[1])
+args = tuple(args)
+elif 'message' in kwargs and isinstance(kwargs['message'], str):
+kwargs['message'] = apply_premium_emojis(kwargs['message'])
+kwargs['parse_mode'] = 'html' # Bắt buộc ép HTML toàn hệ thống
+return await original_send_message(*args, **kwargs)
+async def patched_edit_message(*args, **kwargs):
+if len(args) > 1 and isinstance(args[1], str):
+args = list(args)
+args[1] = apply_premium_emojis(args[1])
+args = tuple(args)
+elif 'text' in kwargs and isinstance(kwargs['text'], str):
+kwargs['text'] = apply_premium_emojis(kwargs['text'])
+kwargs['parse_mode'] = 'html'
+return await original_edit_message(*args, **kwargs)
+# Kích hoạt đánh chặn
+bot.send_message = patched_send_message
+bot.edit_message = patched_edit_message
+# ==================== LỆNH CHO ADMIN TÙY CHỈNH EMOJI ====================
+@bot.on(events.NewMessage(pattern=r"^/setemoji (.) (.)$"))
+async def admin_set_emoji(e):
+if e.sender_id != ADMIN_ID:
+return
+std_emoji = e.pattern_match.group(1).strip()
+premium_id = e.pattern_match.group(2).strip()
+# Lưu vào Supabase
+await db_set_setting(f"EMOJI_{std_emoji}", premium_id)
+# Load lại vào Cache để áp dụng ngay lập tức
+await load_premium_emojis()
+await e.respond(f"✅ Đã cài đặt emoji động!\nTừ giờ hệ thống cứ thấy <b>{std_emoji}</b> sẽ tự biến thành Custom Emoji có ID: <code>{premium_id}</code>")
+@bot.on(events.NewMessage(pattern=r"^/delemoji (.*)$"))
+async def admin_del_emoji(e):
+if e.sender_id != ADMIN_ID:
+return
+std_emoji = e.pattern_match.group(1).strip()
+try:
+await asyncio.to_thread(lambda: supabase.table("settings").delete().eq("key", f"EMOJI_{std_emoji}").execute())
+await load_premium_emojis()
+await e.respond(f"✅ Đã xóa emoji động của <b>{std_emoji}</b>, bot sẽ trả về emoji thường.")
+except:
+await e.respond("❌ Lỗi khi xóa, hoặc chưa được cài đặt.")
+# ========================================================================
+```
+### 2. Kích hoạt tự động Load Emojis khi chạy Bot
+Cuộn xuống tận cùng file của bạn (phần khởi động), tìm hàm async def main():, và thêm đúng 1 dòng await load_premium_emojis() như thế này:
+```python
+async def main():
+await bot.start(bot_token=BOT_TOKEN)
+print("--- BOT IS STARTED AND ONLINE ---")
+# ---> THÊM ĐÚNG DÒNG NÀY ĐỂ KÍCH HOẠT HỆ THỐNG <---
+await load_premium_emojis()
+asyncio.create_task(auto_clean_history())
+asyncio.create_task(auto_daily_reward())
+asyncio.create_task(auto_broadcast_ad())
+# ... (các phần bên dưới giữ y nguyên)
+```
+
 asyncio.set_event_loop(loop)
 
 # Thêm biến Cache Global để chống rate limit Supabase
