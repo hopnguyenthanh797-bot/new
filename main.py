@@ -56,8 +56,6 @@ logging.basicConfig(level=logging.INFO)
 bot = TelegramClient(StringSession(), API_ID, API_HASH)
 
 loop = asyncio.new_event_loop()
-
-```python
 # ==================== HỆ THỐNG EMOJI PREMIUM TỰ ĐỘNG ====================
 PREMIUM_EMOJIS = {}
 async def load_premium_emojis():
