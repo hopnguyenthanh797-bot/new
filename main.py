@@ -62,7 +62,7 @@ asyncio.set_event_loop(loop)
 cached_categories = []
 last_cache_time = 0
 
-# ==================== HỆ THỐNG QUẢN LÝ EMOJI ====================
+# ==================== HỆ THỐNG QUẢN LÝ EMOJI ĐỘNG ====================
 DEFAULT_EMOJIS = {
     "bot": "🤖", "user": "👤", "money": "💰", "vip": "🎖",
     "cart": "🛒", "bank": "🏦", "history": "🕒", "trophy": "🏆",
@@ -884,14 +884,14 @@ async def cb_handler(e):
         ]
         await e.edit(f"{EMOJI_CACHE['admin']} **BẢNG ĐIỀU KHIỂN ADMIN** ", buttons=btns)
 
-    # ---> QUẢN LÝ EMOJI TỪ ADMIN BẢO ĐẢM KHÔNG LỖI <---
+    # ---> TÍNH NĂNG MỚI: QUẢN LÝ EMOJI THEO YÊU CẦU <---
     elif data == "admin_emoji":
         await e.answer()
         if uid != ADMIN_ID: return
         await e.delete()
         async with bot.conversation(uid) as conv:
             try:
-                msg = f"✨ **HỆ THỐNG QUẢN LÝ EMOJI** ✨\n\nBạn có thể đổi các emoji dưới đây bằng cách copy emoji mới và dán vào. Các nút bấm cũng sẽ tự động thay đổi.\n\n"
+                msg = f"✨ **HỆ THỐNG QUẢN LÝ EMOJI** ✨\n\nBạn có thể đổi các emoji dưới đây bằng cách dán EMOJI MỚI (Hỗ trợ dán cả Emoji Động Premium) vào.\n\n"
                 msg += "**Các mã hiện có:**\n" + ", ".join([f"`{k}`" for k in DEFAULT_EMOJIS.keys()])
                 msg += "\n\n👉 **Nhập TÊN MÃ muốn đổi (Ví dụ: bot, user, money...):**"
                 await conv.send_message(msg)
@@ -902,7 +902,7 @@ async def cb_handler(e):
                     await conv.send_message(f"{EMOJI_CACHE['cross']} Mã không hợp lệ! Vui lòng làm lại.", buttons=[[TButton.inline("🔙 ADMIN", b"admin_menu")]])
                     return
                 
-                await conv.send_message(f"👉 **Gửi EMOJI MỚI cho mã `{key_to_edit}`:**\n")
+                await conv.send_message(f"👉 **Gửi EMOJI MỚI cho mã `{key_to_edit}`:**\n*(Bạn có thể dán emoji bất kỳ bạn thích vào đây)*")
                 new_em = (await conv.get_response()).text.strip()
                 
                 await db_set_setting(f"EMO_{key_to_edit}", new_em)
@@ -1639,12 +1639,12 @@ def webhook():
                 f"💳 **GIAO DỊCH NẠP TIỀN THÀNH CÔNG**\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"🔖 **Mã GD:** `{tx_id}`\n"
-                f"{EMOJI_CACHE['user']} **Khách hàng ID:** `{uid}`\n"
+                f"👤 **Khách hàng ID:** `{uid}`\n"
                 f"💵 **Số tiền nạp:** **+{amt:,} VNĐ**\n"
                 f"💬 **Nội dung:** `{content}`\n"
                 f"⏰ **Thời gian:** `{now_str}`\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
-                f"{EMOJI_CACHE['check']} *Hệ thống cộng tiền tự động 24/7*"
+                f"✅ *Hệ thống cộng tiền tự động 24/7*"
             )
             sync_send_channel_notify(notify_text)
             
@@ -1653,7 +1653,7 @@ def webhook():
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"🔖 **Mã Giao Dịch:** `{tx_id}`\n"
                 f"💵 **Số tiền:** **+{amt:,} VNĐ**\n"
-                f"{EMOJI_CACHE['money']} **Số dư hiện tại:** **{new_balance:,} VNĐ**\n"
+                f"💰 **Số dư hiện tại:** **{new_balance:,} VNĐ**\n"
                 f"⏰ **Thời gian:** `{now_str}`\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"Cảm ơn bạn đã sử dụng dịch vụ của hệ thống! 🚀"
