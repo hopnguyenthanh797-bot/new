@@ -62,7 +62,7 @@ asyncio.set_event_loop(loop)
 cached_categories = []
 last_cache_time = 0
 
-# ==================== HỆ THỐNG QUẢN LÝ EMOJI ĐỘNG ====================
+# ==================== HỆ THỐNG QUẢN LÝ EMOJI ====================
 DEFAULT_EMOJIS = {
     "bot": "🤖", "user": "👤", "money": "💰", "vip": "🎖",
     "cart": "🛒", "bank": "🏦", "history": "🕒", "trophy": "🏆",
@@ -500,6 +500,7 @@ async def cb_handler(e):
         btns = await get_main_btns(uid)
         await e.edit(text, buttons=btns)
 
+    # FIX LỖI NÚT CHECK JOIN 
     elif data == "check_join":
         channel = await db_get_setting("FORCE_JOIN_CHANNEL", "Chưa cài đặt")
         if channel and channel != "Chưa cài đặt" and channel.strip() != "":
@@ -507,13 +508,13 @@ async def cb_handler(e):
                 channel_entity = int(channel) if str(channel).lstrip('-').isdigit() else channel
                 participant = await bot.get_permissions(channel_entity, uid)
                 if not participant.is_participant:
-                    await e.answer("❌ Bạn chưa tham gia kênh! Vui lòng tham gia để sử dụng bot.", alert=True)
+                    await e.answer(f"{EMOJI_CACHE['cross']} Bạn chưa tham gia kênh! Vui lòng tham gia để sử dụng bot.", alert=True)
                     return
             except Exception:
-                await e.answer("❌ Bạn chưa tham gia kênh! Vui lòng tham gia để sử dụng bot.", alert=True)
+                await e.answer(f"{EMOJI_CACHE['cross']} Bạn chưa tham gia kênh! Vui lòng tham gia để sử dụng bot.", alert=True)
                 return
                 
-        await e.answer("✅ Xác nhận thành công!", alert=True)
+        await e.answer(f"{EMOJI_CACHE['check']} Xác nhận thành công!", alert=True)
         user = await db_get_user(uid)
         text = await main_menu_text(user)
         btns = await get_main_btns(uid)
@@ -524,7 +525,7 @@ async def cb_handler(e):
         await e.answer()
         user = await db_get_user(uid)
         if user.get('role') != 'ctv':
-            await e.answer("❌ Bạn không có quyền truy cập!", alert=True)
+            await e.answer(f"{EMOJI_CACHE['cross']} Bạn không có quyền truy cập!", alert=True)
             return
             
         txt = (f"💼 **TRUNG TÂM ĐỐI TÁC (CỘNG TÁC VIÊN)** 💼\n"
@@ -544,6 +545,7 @@ async def cb_handler(e):
         ]
         await e.edit(txt, buttons=btns)
 
+    # TÍNH NĂNG MỚI: CTV TỰ XEM LỊCH SỬ ĐƠN HÀNG CỦA MÌNH
     elif data == "ctv_my_history":
         await e.answer()
         user = await db_get_user(uid)
@@ -571,7 +573,7 @@ async def cb_handler(e):
         await e.delete()
         async with bot.conversation(uid) as conv:
             try:
-                await conv.send_message(f"🌟 **[CTV] TẠO SẢN PHẨM MỚI**\n👉 Nhập Tên Game/Sản phẩm (VD: Ok vip random 8-88k):")
+                await conv.send_message("🌟 **[CTV] TẠO SẢN PHẨM MỚI**\n👉 Nhập Tên Game/Sản phẩm (VD: Ok vip random 8-88k):")
                 name = (await conv.get_response()).text.strip()
                 
                 await conv.send_message(f"{EMOJI_CACHE['money']} Nhập Giá bán ra cho khách hàng (Ghi số, VD: 15000):")
@@ -712,11 +714,12 @@ async def cb_handler(e):
                     await conv.send_message(f"{EMOJI_CACHE['check']} Đã THU HỒI quyền CTV của tài khoản `{target_id}`", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
                 else:
                     await asyncio.to_thread(lambda: supabase.table("users").update({"role": "ctv"}).eq("user_id", target_id).execute())
-                    await bot.send_message(target_id, f"🎉 **CHÚC MỪNG!**\nBạn đã được Admin cấp quyền **ĐỐI TÁC (CỘNG TÁC VIÊN)**.\nHãy vào Menu chính để truy cập Kênh Đối Tác nhé!")
+                    await bot.send_message(target_id, "🎉 **CHÚC MỪNG!**\nBạn đã được Admin cấp quyền **ĐỐI TÁC (CỘNG TÁC VIÊN)**.\nHãy vào Menu chính để truy cập Kênh Đối Tác nhé!")
                     await conv.send_message(f"{EMOJI_CACHE['check']} Đã CẤP quyền CTV thành công cho tài khoản `{target_id}`", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
             except ValueError:
                 await conv.send_message(f"{EMOJI_CACHE['cross']} ID phải là số!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
 
+    # TÍNH NĂNG MỚI: ADMIN CỘNG/TRỪ TIỀN VÍ CTV
     elif data == "admin_money_ctv":
         await e.answer()
         if uid != ADMIN_ID: return
@@ -745,6 +748,7 @@ async def cb_handler(e):
                 logging.error(f"Lỗi admin_money_ctv: {ex}")
                 await conv.send_message(f"{EMOJI_CACHE['cross']} Lỗi cơ sở dữ liệu!", buttons=[[TButton.inline("🔙 QUẢN LÝ CTV", b"admin_ctv")]])
 
+    # TÍNH NĂNG MỚI: ADMIN XEM LỊCH SỬ BÁN HÀNG CỦA CTV
     elif data == "admin_ctv_history":
         await e.answer()
         if uid != ADMIN_ID: return
@@ -824,8 +828,8 @@ async def cb_handler(e):
             
             txt = (f"{EMOJI_CACHE['stats']} **BẢNG THỐNG KÊ HỆ THỐNG** {EMOJI_CACHE['stats']}\n"
                    f"━━━━━━━━━━━━━━━━━━\n"
-                   f"👥 **Tổng số thành viên:** `{total_users:,}` người\n"
-                   f"💵 **Tổng tiền đã nạp:** `{total_dep:,} VNĐ`\n"
+                   f"{EMOJI_CACHE['user']} **Tổng số thành viên:** `{total_users:,}` người\n"
+                   f"{EMOJI_CACHE['money']} **Tổng tiền đã nạp:** `{total_dep:,} VNĐ`\n"
                    f"{EMOJI_CACHE['box']} **Tổng lượt mua code:** `{total_sold:,}` mã\n"
                    f"━━━━━━━━━━━━━━━━━━\n"
                    f"{EMOJI_CACHE['check']} *Hệ thống uy tín, tự động và minh bạch 24/7!*")
@@ -875,19 +879,19 @@ async def cb_handler(e):
             [TButton.inline("🕵️ CHECK LỊCH SỬ GD", b"admin_check_history")],
             [TButton.inline(f"{EMOJI_CACHE['trophy']} BẮN THÔNG BÁO TOP NẠP", b"admin_notify_top")], 
             [TButton.inline(f"{EMOJI_CACHE['speaker']} BẮN THÔNG BÁO CHO USER", b"admin_broadcast")],
-            [TButton.inline("✨ QUẢN LÝ EMOJI PREMIUM", b"admin_emoji")], 
+            [TButton.inline("✨ QUẢN LÝ EMOJI", b"admin_emoji")],
             [TButton.inline("🔙 TRANG CHỦ", b"back")]
         ]
-        await e.edit(f"👨‍💻 **BẢNG ĐIỀU KHIỂN ADMIN** ", buttons=btns)
+        await e.edit(f"{EMOJI_CACHE['admin']} **BẢNG ĐIỀU KHIỂN ADMIN** ", buttons=btns)
 
-    # ---> TÍNH NĂNG MỚI: QUẢN LÝ EMOJI BẰNG CƠ SỞ DỮ LIỆU
+    # ---> QUẢN LÝ EMOJI TỪ ADMIN BẢO ĐẢM KHÔNG LỖI <---
     elif data == "admin_emoji":
         await e.answer()
         if uid != ADMIN_ID: return
         await e.delete()
         async with bot.conversation(uid) as conv:
             try:
-                msg = f"✨ **HỆ THỐNG QUẢN LÝ EMOJI ĐỘNG** ✨\n\nBạn có thể đổi các emoji dưới đây bằng cách copy emoji mới (hoặc Premium Emoji) và dán vào. Các nút bấm cũng sẽ tự động thay đổi.\n\n"
+                msg = f"✨ **HỆ THỐNG QUẢN LÝ EMOJI** ✨\n\nBạn có thể đổi các emoji dưới đây bằng cách copy emoji mới và dán vào. Các nút bấm cũng sẽ tự động thay đổi.\n\n"
                 msg += "**Các mã hiện có:**\n" + ", ".join([f"`{k}`" for k in DEFAULT_EMOJIS.keys()])
                 msg += "\n\n👉 **Nhập TÊN MÃ muốn đổi (Ví dụ: bot, user, money...):**"
                 await conv.send_message(msg)
@@ -898,11 +902,11 @@ async def cb_handler(e):
                     await conv.send_message(f"{EMOJI_CACHE['cross']} Mã không hợp lệ! Vui lòng làm lại.", buttons=[[TButton.inline("🔙 ADMIN", b"admin_menu")]])
                     return
                 
-                await conv.send_message(f"👉 **Gửi EMOJI MỚI cho mã `{key_to_edit}`:**\n*(Lưu ý: Nếu gửi emoji thường, nút bấm cũng sẽ đổi. Telegram không hỗ trợ Emoji Premium trong nút bấm).*")
+                await conv.send_message(f"👉 **Gửi EMOJI MỚI cho mã `{key_to_edit}`:**\n")
                 new_em = (await conv.get_response()).text.strip()
                 
                 await db_set_setting(f"EMO_{key_to_edit}", new_em)
-                EMOJI_CACHE[key_to_edit] = new_em # Cập nhật trực tiếp trên cache
+                EMOJI_CACHE[key_to_edit] = new_em 
                 
                 await conv.send_message(f"{EMOJI_CACHE['check']} Đã cập nhật thành công Emoji mới cho mã `{key_to_edit}`!", buttons=[[TButton.inline("🔙 ADMIN", b"admin_menu")]])
             except Exception as ex:
@@ -1635,12 +1639,12 @@ def webhook():
                 f"💳 **GIAO DỊCH NẠP TIỀN THÀNH CÔNG**\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"🔖 **Mã GD:** `{tx_id}`\n"
-                f"👤 **Khách hàng ID:** `{uid}`\n"
+                f"{EMOJI_CACHE['user']} **Khách hàng ID:** `{uid}`\n"
                 f"💵 **Số tiền nạp:** **+{amt:,} VNĐ**\n"
                 f"💬 **Nội dung:** `{content}`\n"
                 f"⏰ **Thời gian:** `{now_str}`\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
-                f"✅ *Hệ thống cộng tiền tự động 24/7*"
+                f"{EMOJI_CACHE['check']} *Hệ thống cộng tiền tự động 24/7*"
             )
             sync_send_channel_notify(notify_text)
             
@@ -1649,7 +1653,7 @@ def webhook():
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"🔖 **Mã Giao Dịch:** `{tx_id}`\n"
                 f"💵 **Số tiền:** **+{amt:,} VNĐ**\n"
-                f"💰 **Số dư hiện tại:** **{new_balance:,} VNĐ**\n"
+                f"{EMOJI_CACHE['money']} **Số dư hiện tại:** **{new_balance:,} VNĐ**\n"
                 f"⏰ **Thời gian:** `{now_str}`\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"Cảm ơn bạn đã sử dụng dịch vụ của hệ thống! 🚀"
